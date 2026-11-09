@@ -90,6 +90,7 @@ export default function SetupPage() {
   const [allExist, setAllExist] = useState(false);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
 
   async function check() {
     setLoading(true);
@@ -98,8 +99,10 @@ export default function SetupPage() {
       const data = await res.json();
       setResults(data.results ?? []);
       setAllExist(data.allTablesExist ?? false);
+      setError(data.allTablesExist ? "" : data.error ?? "");
     } catch {
       setResults([]);
+      setError("Sunucuya ulaşılamadı.");
     } finally {
       setLoading(false);
     }
@@ -109,10 +112,14 @@ export default function SetupPage() {
     check();
   }, []);
 
-  function copySql() {
-    navigator.clipboard.writeText(SCHEMA_SQL);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  async function copySql() {
+    try {
+      await navigator.clipboard.writeText(SCHEMA_SQL);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* pano izni yok; kullanıcı elle kopyalayabilir */
+    }
   }
 
   return (
@@ -171,6 +178,11 @@ export default function SetupPage() {
             );
           })}
         </div>
+        {error && !allExist && !loading && (
+          <p className="mt-3 break-words rounded-md bg-destructive/[0.06] px-3 py-2 text-[12px] text-destructive">
+            Supabase cevabı: {error}
+          </p>
+        )}
         {allExist && (
           <div className="mt-4 flex items-center justify-between rounded-md border border-success/20 bg-success/[0.06] px-3 py-2.5">
             <span className="flex items-center gap-2 text-[13px] text-success">
@@ -208,6 +220,11 @@ export default function SetupPage() {
         <span className="text-foreground">SQL Editor</span> bölümünü açın, bu
         SQL&apos;i yapıştırın ve çalıştırın. Ardından &quot;Tabloları Kontrol
         Et&quot;e tıklayın.
+      </p>
+      <p className="mt-2 text-[12px] text-muted-foreground/70">
+        Supabase kullanmak istemiyor musunuz? <code>.env.local</code> dosyasından{" "}
+        <code>SUPABASE_URL</code> ve <code>SUPABASE_SECRET_KEY</code> satırlarını silip uygulamayı
+        yeniden başlatın; veriler bilgisayarınızda saklanır.
       </p>
     </div>
   );

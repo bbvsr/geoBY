@@ -1,98 +1,125 @@
-import type {
-  Competitor,
-  DomainType,
-  ParsedResponse,
-  Sentiment,
-} from "@/types";
+import type { Competitor, DomainType, ParsedResponse, Sentiment } from "@/types";
 import { extractDomain, escapeRegExp } from "@/lib/utils";
+
+/**
+ * LLM cevabını analiz eder (yapay zeka KULLANMAZ — deterministik ve hızlı):
+ * marka geçiyor mu, kaç kez, kaçıncı sırada, ton (sentiment), rakipler, kaynaklar.
+ */
 
 // ---- Domain sınıflandırma sözlükleri ----
 const UGC_DOMAINS = [
-  "reddit.com", "youtube.com", "quora.com", "medium.com", "twitter.com",
+  "reddit.com", "youtube.com", "youtu.be", "quora.com", "medium.com", "twitter.com",
   "x.com", "tiktok.com", "facebook.com", "instagram.com", "linkedin.com",
   "g2.com", "capterra.com", "trustpilot.com", "getapp.com", "producthunt.com",
-  "ekşisözlük", "eksisozluk.com", "sikayetvar.com",
+  "eksisozluk.com", "sikayetvar.com", "donanimhaber.com", "technopat.net",
 ];
 const EDITORIAL_DOMAINS = [
   "techcrunch.com", "wired.com", "forbes.com", "bloomberg.com", "theverge.com",
   "businessinsider.com", "cnbc.com", "webrazzi.com", "hurriyet.com.tr",
-  "milliyet.com.tr", "ntv.com.tr",
+  "milliyet.com.tr", "ntv.com.tr", "sozcu.com.tr", "haberturk.com", "shiftdelete.net",
 ];
 const REFERENCE_DOMAINS = [
   "wikipedia.org", "developer.mozilla.org", "mdn.io", "vikipedi.org",
 ];
 
-function classifyDomain(
+function domainMatches(domain: string, list: string[]): boolean {
+  return list.some((u) => domain === u || domain.endsWith(`.${u}`));
+}
+
+export function classifyDomain(
   domain: string,
   brandDomain: string,
   competitorDomains: string[]
 ): DomainType {
   const d = extractDomain(domain);
   const bd = extractDomain(brandDomain);
-  if (bd && d.includes(bd)) return "You";
-  if (competitorDomains.some((cd) => cd && d.includes(extractDomain(cd))))
+  if (bd && (d === bd || d.endsWith(`.${bd}`))) return "You";
+  if (
+    competitorDomains.some((cd) => {
+      const c = extractDomain(cd);
+      return c && (d === c || d.endsWith(`.${c}`));
+    })
+  )
     return "Competitor";
-  if (UGC_DOMAINS.some((u) => d.includes(u))) return "UGC";
-  if (EDITORIAL_DOMAINS.some((e) => d.includes(e))) return "Editorial";
-  if (REFERENCE_DOMAINS.some((r) => d.includes(r))) return "Reference";
-  if (/\.(edu|gov|org)(\.[a-z]{2})?$/.test(d)) return "Institutional";
+  if (domainMatches(d, UGC_DOMAINS)) return "UGC";
+  if (domainMatches(d, EDITORIAL_DOMAINS)) return "Editorial";
+  if (domainMatches(d, REFERENCE_DOMAINS)) return "Reference";
+  if (/\.(edu|gov|org|k12)(\.[a-z]{2})?$/.test(d)) return "Institutional";
   return "Corporate";
 }
 
-// ---- Sentiment kelime listeleri (TR + EN) ----
-const POSITIVE_WORDS = [
+// ---- Sentiment kelime listeleri ----
+// İngilizce kelimeler tam kelime olarak, Türkçe kelimeler ekleriyle birlikte eşleşir
+// ("pahalı" → "pahalıdır" eşleşir; "top" → "topluluk" eşleşmez).
+const POSITIVE_EN = [
   "best", "top", "leading", "recommended", "popular", "excellent", "great",
   "powerful", "reliable", "trusted", "favorite", "premier", "strong",
-  "en iyi", "lider", "önerilen", "popüler", "güçlü", "güvenilir", "kaliteli",
-  "başarılı", "tercih", "üstün", "mükemmel", "avantajlı",
 ];
-const NEGATIVE_WORDS = [
+const POSITIVE_TR = [
+  "en iyi", "lider", "önerilen", "öneririm", "popüler", "güçlü", "güvenilir", "kaliteli",
+  "başarılı", "tercih edilen", "üstün", "mükemmel", "avantajlı", "uygun fiyat", "hızlı",
+];
+const NEGATIVE_EN = [
   "worst", "poor", "limited", "expensive", "weak", "lacking", "outdated",
   "complicated", "difficult", "unreliable", "buggy", "slow",
+];
+const NEGATIVE_TR = [
   "kötü", "zayıf", "pahalı", "sınırlı", "eksik", "yetersiz", "karmaşık",
-  "zor", "güvenilmez", "yavaş", "dezavantaj",
+  "güvenilmez", "yavaş", "dezavantaj", "şikayet", "sorunlu",
 ];
 
-function countOccurrences(haystack: string, needle: string): number {
-  if (!needle) return 0;
-  const re = new RegExp(escapeRegExp(needle), "gi");
-  const m = haystack.match(re);
-  return m ? m.length : 0;
+const L = "\\p{L}\\p{N}";
+
+function countWord(text: string, word: string, allowSuffix: boolean): number {
+  const tail = allowSuffix ? "" : `(?![${L}])`;
+  const re = new RegExp(`(?<![${L}])${escapeRegExp(word)}${tail}`, "giu");
+  return text.match(re)?.length ?? 0;
 }
 
-/** Kelime sınırı ile marka geçiş sayısı (Türkçe ekleri toleranslı). */
-function countMentions(text: string, term: string): number {
-  if (!term) return 0;
-  // \b Türkçe karakterlerle her zaman iyi çalışmaz; esnek sınır kullanıyoruz.
-  const re = new RegExp(
-    `(^|[^\\p{L}])${escapeRegExp(term)}([^\\p{L}]|$)`,
-    "giu"
+/**
+ * Bir terimin metindeki tüm geçiş aralıkları. Tam kelime eşleşir; Türkçe ek
+ * yalnızca kesme işaretiyle kabul edilir ("Getir'den" evet, "getirdi" hayır).
+ */
+function findRanges(text: string, term: string): [number, number][] {
+  if (!term || term.length < 2) return [];
+  const re = new RegExp(`(?<![${L}])${escapeRegExp(term)}(?![${L}])`, "giu");
+  const out: [number, number][] = [];
+  for (const m of text.matchAll(re)) out.push([m.index!, m.index! + m[0].length]);
+  return out;
+}
+
+/** Ad ve domain geçişlerini birleştirir; iç içe olanları ("Trendyol" ⊂ "trendyol.com") bir kez sayar. */
+function mentionRanges(text: string, name: string, domain: string): [number, number][] {
+  const all = [...findRanges(text, name.trim()), ...findRanges(text, extractDomain(domain))].sort(
+    (a, b) => a[0] - b[0]
   );
-  const matches = text.match(re);
-  return matches ? matches.length : 0;
+  const merged: [number, number][] = [];
+  for (const r of all) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] < last[1]) last[1] = Math.max(last[1], r[1]);
+    else merged.push([...r]);
+  }
+  return merged;
 }
 
-function detectSentiment(
-  text: string,
-  brandName: string,
-  brandDomain: string
-): Sentiment {
-  const lower = text.toLowerCase();
-  const nameL = brandName.toLowerCase();
-  const domainL = extractDomain(brandDomain);
-
-  // Marka adı geçen cümleleri topla
-  const sentences = text.split(/(?<=[.!?\n])\s+/);
-  const relevant = sentences.filter((s) => {
-    const sl = s.toLowerCase();
-    return (nameL && sl.includes(nameL)) || (domainL && sl.includes(domainL));
-  });
-  const scope = relevant.length ? relevant.join(" ").toLowerCase() : lower;
+function detectSentiment(text: string, ranges: [number, number][]): Sentiment {
+  // Markanın geçtiği cümleleri al
+  const sentences: string[] = [];
+  const re = /[^.!?\n]+[.!?\n]*/g;
+  for (const m of text.matchAll(re)) {
+    const s = m.index!;
+    const e = s + m[0].length;
+    if (ranges.some(([a, b]) => a < e && b > s)) sentences.push(m[0]);
+  }
+  const scope = sentences.join(" ").toLocaleLowerCase("tr");
+  if (!scope) return "neutral";
 
   let pos = 0;
   let neg = 0;
-  for (const w of POSITIVE_WORDS) pos += countOccurrences(scope, w);
-  for (const w of NEGATIVE_WORDS) neg += countOccurrences(scope, w);
+  for (const w of POSITIVE_EN) pos += countWord(scope, w, false);
+  for (const w of POSITIVE_TR) pos += countWord(scope, w, true);
+  for (const w of NEGATIVE_EN) neg += countWord(scope, w, false);
+  for (const w of NEGATIVE_TR) neg += countWord(scope, w, true);
 
   if (pos > neg) return "positive";
   if (neg > pos) return "negative";
@@ -100,43 +127,26 @@ function detectSentiment(
 }
 
 /**
- * Konum skoru (1-5, 1 = en iyi).
- * (a) Numaralı liste tespiti: markanın hemen önündeki "N." → skor.
- * (b) Aksi halde metindeki göreli ilk-geçiş konumu.
+ * Konum (1 = en iyi): cevapta kaçıncı sırada önerildiği.
+ * 1) Marka numaralı bir listenin maddesindeyse o madde numarası,
+ * 2) değilse cevapta adı geçen markalar (siz + rakipler) arasındaki sırası.
  */
 function detectPosition(
   text: string,
-  brandName: string,
-  brandDomain: string
-): number | null {
-  const nameL = brandName.toLowerCase();
-  const domainL = extractDomain(brandDomain);
-  const lower = text.toLowerCase();
-
-  const idxName = nameL ? lower.indexOf(nameL) : -1;
-  const idxDomain = domainL ? lower.indexOf(domainL) : -1;
-  let idx = -1;
-  if (idxName >= 0 && idxDomain >= 0) idx = Math.min(idxName, idxDomain);
-  else idx = Math.max(idxName, idxDomain);
-  if (idx < 0) return null;
-
-  // (a) Numaralı liste: markadan önceki en yakın "N." ara (aynı satır/yakın)
-  const before = text.slice(Math.max(0, idx - 80), idx);
-  const listMatch = [...before.matchAll(/(\d{1,2})[.)]\s/g)];
-  if (listMatch.length) {
-    const n = parseInt(listMatch[listMatch.length - 1][1], 10);
-    if (n >= 1 && n <= 20) {
-      // 1→1, 2→1.5, 3→2, ... kabaca 5'e sıkıştır
-      return Math.min(5, Math.max(1, Math.round((n + 1) / 2)));
-    }
+  brandFirst: number,
+  competitorFirsts: number[]
+): number {
+  const lineStart = text.lastIndexOf("\n", brandFirst - 1) + 1;
+  const line = text.slice(lineStart, brandFirst);
+  const item = line.match(/^\s*(?:[#>*_\-\s]*)(\d{1,2})[.)]\s/);
+  if (item) {
+    const n = parseInt(item[1], 10);
+    if (n >= 1 && n <= 20) return n;
   }
-
-  // (b) Göreli konum: metnin başında → 1, sonunda → 5
-  const ratio = idx / Math.max(1, text.length);
-  return Math.min(5, Math.max(1, Math.round(1 + ratio * 4)));
+  return 1 + competitorFirsts.filter((i) => i >= 0 && i < brandFirst).length;
 }
 
-const URL_REGEX = /https?:\/\/[^\s<>"')\]]+/gi;
+const URL_REGEX = /https?:\/\/[^\s<>"'`)\]}]+/gi;
 
 function extractCitations(
   text: string,
@@ -145,16 +155,13 @@ function extractCitations(
   competitorDomains: string[]
 ): { domain: string; url: string; domainType: DomainType }[] {
   const urls = new Set<string>();
-  const found = text.match(URL_REGEX) ?? [];
-  for (const u of found) urls.add(u.replace(/[.,;]+$/, ""));
-  for (const u of extra) if (u) urls.add(u.trim());
+  for (const u of text.match(URL_REGEX) ?? []) urls.add(u.replace(/[.,;:!?*]+$/, ""));
+  for (const u of extra) if (u?.trim()) urls.add(u.trim());
 
-  const seen = new Set<string>();
   const result: { domain: string; url: string; domainType: DomainType }[] = [];
   for (const url of urls) {
     const domain = extractDomain(url);
-    if (!domain || seen.has(url)) continue;
-    seen.add(url);
+    if (!domain || !domain.includes(".")) continue;
     result.push({
       domain,
       url,
@@ -168,51 +175,35 @@ export interface ParseInput {
   response: string;
   brandName: string;
   brandDomain: string;
-  competitors: Competitor[];
-  /** API kaynaklı ekstra citation URL'leri (Perplexity/DataForSEO). */
+  competitors: Pick<Competitor, "name" | "domain">[];
+  /** API kaynaklı ekstra citation URL'leri (Perplexity, Gemini arama). */
   extraCitations?: string[];
 }
 
 export function parseResponse(input: ParseInput): ParsedResponse {
-  const { response, brandName, brandDomain, competitors } = input;
-  const text = response ?? "";
-
-  const nameCount = countMentions(text, brandName);
-  const domainCount = brandDomain
-    ? countOccurrences(text.toLowerCase(), extractDomain(brandDomain))
-    : 0;
-  const mentionCount = nameCount + domainCount;
-  const mentioned = mentionCount > 0;
+  const text = input.response ?? "";
+  const ranges = mentionRanges(text, input.brandName, input.brandDomain);
+  const mentioned = ranges.length > 0;
 
   const competitorMentions: Record<string, boolean> = {};
-  for (const c of competitors) {
-    const byName = countMentions(text, c.name) > 0;
-    const byDomain = c.domain
-      ? text.toLowerCase().includes(extractDomain(c.domain))
-      : false;
-    competitorMentions[c.name] = byName || byDomain;
+  const competitorFirsts: number[] = [];
+  for (const c of input.competitors) {
+    const r = mentionRanges(text, c.name, c.domain);
+    competitorMentions[c.name] = r.length > 0;
+    competitorFirsts.push(r.length ? r[0][0] : -1);
   }
-
-  const positionScore = mentioned
-    ? detectPosition(text, brandName, brandDomain)
-    : null;
-  const sentiment = mentioned
-    ? detectSentiment(text, brandName, brandDomain)
-    : "neutral";
-
-  const citations = extractCitations(
-    text,
-    input.extraCitations ?? [],
-    brandDomain,
-    competitors.map((c) => c.domain)
-  );
 
   return {
     mentioned,
-    mentionCount,
-    positionScore,
-    sentiment,
+    mentionCount: ranges.length,
+    positionScore: mentioned ? detectPosition(text, ranges[0][0], competitorFirsts) : null,
+    sentiment: mentioned ? detectSentiment(text, ranges) : "neutral",
     competitorMentions,
-    citations,
+    citations: extractCitations(
+      text,
+      input.extraCitations ?? [],
+      input.brandDomain,
+      input.competitors.map((c) => c.domain)
+    ),
   };
 }

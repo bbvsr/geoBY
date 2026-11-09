@@ -1,25 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
-import {
-  getPrimaryBrand,
-  updateSelectedModels,
-} from "@/lib/supabase-admin";
-import { ALL_MODELS, type ModelId } from "@/types";
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { isModelId, readJson, requireBrand, route } from "@/lib/http";
+import { ALL_MODELS } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const brand = await getPrimaryBrand();
-  return NextResponse.json({
-    selectedModels: brand?.selected_models ?? ALL_MODELS,
-  });
-}
+export const GET = route(async () => {
+  const brand = await db().getPrimaryBrand();
+  return NextResponse.json({ selectedModels: brand?.selected_models ?? ALL_MODELS });
+});
 
-export async function PUT(req: NextRequest) {
-  const brand = await getPrimaryBrand();
-  if (!brand)
-    return NextResponse.json({ error: "marka yok" }, { status: 400 });
-  const { models } = (await req.json()) as { models: ModelId[] };
-  const valid = (models || []).filter((m) => ALL_MODELS.includes(m));
-  await updateSelectedModels(brand.id, valid.length ? valid : ALL_MODELS);
-  return NextResponse.json({ selectedModels: valid });
-}
+export const PUT = route(async (req) => {
+  const brand = await requireBrand();
+  const { models } = await readJson(req);
+  const valid = Array.isArray(models) ? [...new Set(models.filter(isModelId))] : [];
+  const selected = valid.length ? valid : [...ALL_MODELS];
+  await db().updateSelectedModels(brand.id, selected);
+  return NextResponse.json({ selectedModels: selected });
+});

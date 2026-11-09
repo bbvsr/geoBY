@@ -90,11 +90,12 @@ export function visibilityTrend(
     const point: TrendPoint = {
       date: `${start.getDate()}/${start.getMonth() + 1}`,
     };
+    // Test yapılmayan haftalar boş bırakılır (grafikte %0 gibi görünmesin)
+    if (wr.length === 0) return point;
     point[brand.name] = Math.round(visibility(wr) * 100);
     for (const c of competitors) {
       const compRuns = wr.filter((r) => (r.competitor_mentions ?? {})[c.name]);
-      point[c.name] =
-        wr.length === 0 ? 0 : Math.round((compRuns.length / wr.length) * 100);
+      point[c.name] = Math.round((compRuns.length / wr.length) * 100);
     }
     return point;
   });
@@ -118,6 +119,12 @@ export function rankings(
     position: avgPosition(runs),
   });
 
+  // SOV paydası: tüm markaların (siz + rakipler) toplam geçiş sayısı
+  let totalMentions = runs.filter((r) => r.mentioned).length;
+  for (const r of runs) {
+    for (const v of Object.values(r.competitor_mentions ?? {})) if (v) totalMentions += 1;
+  }
+
   for (const c of competitors) {
     const compMentions = runs.filter(
       (r) => (r.competitor_mentions ?? {})[c.name]
@@ -127,8 +134,9 @@ export function rankings(
       domain: c.domain,
       isYou: false,
       visibility: compMentions / total,
-      sov: 0,
-      sentiment: 55,
+      sov: totalMentions ? compMentions / totalMentions : 0,
+      // Rakipler için ton/konum ölçülmez (yalnızca geçip geçmediği)
+      sentiment: 0,
       position: null,
     });
   }
@@ -297,6 +305,7 @@ export function recentChats(
     );
     chats.push({
       promptId,
+      mentioned: pr.some((r) => r.mentioned),
       promptText: prompt.text,
       models: [...new Set(pr.map((r) => r.model))] as ModelId[],
       citationCount,

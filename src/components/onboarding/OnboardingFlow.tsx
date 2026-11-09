@@ -1,8 +1,10 @@
 "use client";
 import { useState } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   Globe,
+  Sparkles,
   Plus,
   Trash2,
   Zap,
@@ -18,6 +20,7 @@ import {
   type ModelId,
 } from "@/types";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/client";
 
 type Step = "url" | "analyzing" | "review";
 
@@ -39,6 +42,7 @@ export function OnboardingFlow() {
   const [competitors, setCompetitors] = useState<CompetitorDraft[]>([]);
   const [models, setModels] = useState<ModelId[]>([...ALL_MODELS]);
   const [brandName, setBrandName] = useState("");
+  const [category, setCategory] = useState("");
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState("");
 
@@ -47,38 +51,28 @@ export function OnboardingFlow() {
     setStep("analyzing");
     setError("");
     try {
-      const crawlRes = await fetch("/api/onboarding/crawl", {
+      const crawlData = await api<{ crawl: CrawlResult; domain: string }>("/api/onboarding/crawl", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: { url },
       });
-      const crawlData = await crawlRes.json();
-      if (crawlData.error) throw new Error(crawlData.error);
-      const c: CrawlResult = crawlData.crawl;
+      const c = crawlData.crawl;
       setCrawl(c);
       setDomain(crawlData.domain);
       setBrandName(c.brandName);
+      setCategory(c.category);
 
-      const [pRes, cRes] = await Promise.all([
-        fetch("/api/onboarding/generate-prompts", {
+      const [pData, cData] = await Promise.all([
+        api<{ prompts: PromptDraft[] }>("/api/onboarding/generate-prompts", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ crawlData: c, domain: crawlData.domain }),
+          body: { crawlData: c, domain: crawlData.domain },
         }),
-        fetch("/api/onboarding/generate-competitors", {
+        api<{ competitors: CompetitorDraft[] }>("/api/onboarding/generate-competitors", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ crawlData: c, domain: crawlData.domain }),
+          body: { crawlData: c, domain: crawlData.domain },
         }),
       ]);
-      const pData = await pRes.json();
-      const cData = await cRes.json();
-      setPrompts(pData.prompts ?? []);
-      setCompetitors(
-        (cData.competitors ?? []).length
-          ? cData.competitors
-          : [{ name: "", domain: "" }]
-      );
+      setPrompts(pData.prompts);
+      setCompetitors(cData.competitors.length ? cData.competitors : [{ name: "", domain: "" }]);
       setStep("review");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analiz başarısız");
@@ -90,21 +84,18 @@ export function OnboardingFlow() {
     setLaunching(true);
     setError("");
     try {
-      const res = await fetch("/api/onboarding/complete", {
+      await api("/api/onboarding/complete", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brandName: brandName || domain,
+        body: {
+          brandName: brandName.trim() || domain,
           domain,
-          category: crawl?.category ?? "",
+          category,
           description: crawl?.description ?? "",
           prompts: prompts.filter((p) => p.text.trim()),
           competitors: competitors.filter((c) => c.name.trim()),
           selectedModels: models,
-        }),
+        },
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       window.location.href = "/";
     } catch (e) {
       setError(e instanceof Error ? e.message : "Başlatma başarısız");
@@ -128,9 +119,9 @@ export function OnboardingFlow() {
               <Globe className="h-6 w-6 text-primary" />
             </div>
             <h1 className="text-xl font-semibold">GeoBY&apos;e hoş geldiniz</h1>
-            <p className="mt-1.5 text-[13px] text-muted-foreground">
-              Markanızın web sitesini girin; LLM görünürlüğünüzü izlemeye
-              başlayalım.
+            <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
+              ChatGPT, Gemini, Claude gibi yapay zeka asistanları müşterilerinize
+              sizi öneriyor mu? Web sitenizi girin, ölçmeye başlayalım.
             </p>
             <div className="mt-6 flex items-center gap-2">
               <Input
@@ -158,13 +149,35 @@ export function OnboardingFlow() {
               {domain || url} analiz ediliyor
             </h2>
             <p className="mt-1 text-[13px] text-muted-foreground">
-              Site taranıyor, sorular ve rakipler oluşturuluyor…
+              Site taranıyor, sorular ve rakipler hazırlanıyor… (30 sn kadar sürebilir)
             </p>
           </div>
         )}
 
         {step === "review" && crawl && (
           <div className="space-y-4">
+            <div
+              className={cn(
+                "flex items-start gap-2.5 rounded-lg border px-4 py-3 text-[12px] leading-relaxed",
+                crawl.analyzedBy
+                  ? "border-primary/25 bg-primary/[0.05]"
+                  : "border-warning/30 bg-warning/[0.06]"
+              )}
+            >
+              {crawl.analyzedBy ? (
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              ) : (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              )}
+              <span>
+                {crawl.analyzedBy
+                  ? `Öneriler ${crawl.analyzedBy} ile hazırlandı. Kontrol edip düzenleyin.`
+                  : "Yapay zeka anahtarı olmadığı için öneriler basit kurallarla hazırlandı. Soruları ve rakipleri kendinize göre düzenleyin; ücretsiz anahtarı daha sonra Ayarlar'dan ekleyebilirsiniz."}
+                {crawl.fetched === false &&
+                  " Site içeriğine erişilemedi; bilgileri elle kontrol edin."}
+              </span>
+            </div>
+
             {/* Ürün özeti */}
             <div className="rounded-lg border border-border/40 bg-card/60 p-5">
               <h3 className="mb-3 text-[11px] uppercase tracking-wider text-muted-foreground/50">
@@ -177,8 +190,10 @@ export function OnboardingFlow() {
                     onChange={(e) => setBrandName(e.target.value)}
                   />
                 </Field>
+                <Field label="Kategori">
+                  <Input value={category} onChange={(e) => setCategory(e.target.value)} />
+                </Field>
                 <Row label="Domain" value={domain} />
-                <Row label="Kategori" value={crawl.category} />
                 <Row label="Açıklama" value={crawl.description} />
               </div>
             </div>
@@ -219,9 +234,14 @@ export function OnboardingFlow() {
             {/* Sorular */}
             <div className="rounded-lg border border-border/40 bg-card/60 p-5">
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground/50">
-                  Oluşturulan Sorular
-                </h3>
+                <div>
+                  <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground/50">
+                    Takip Edilecek Sorular
+                  </h3>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Müşterinin yapay zekaya soracağı, markanızın önerilmesini istediğiniz sorular.
+                  </p>
+                </div>
                 <button
                   onClick={() =>
                     setPrompts([...prompts, { text: "", topic: "Genel" }])
@@ -311,7 +331,10 @@ export function OnboardingFlow() {
               <Button variant="outline" onClick={() => setStep("url")}>
                 Baştan Başla
               </Button>
-              <Button onClick={launch} disabled={launching}>
+              <Button
+                onClick={launch}
+                disabled={launching || !brandName.trim() || models.length === 0 || !prompts.some((p) => p.text.trim())}
+              >
                 {launching ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (

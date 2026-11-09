@@ -1,18 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { HttpError, readJson, route } from "@/lib/http";
 import { generateCompetitors } from "@/lib/generators";
 import type { CrawlResult } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
-  try {
-    const { crawlData } = (await req.json()) as { crawlData: CrawlResult };
-    const competitors = generateCompetitors(crawlData);
-    return NextResponse.json({ competitors });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "hata" },
-      { status: 500 }
-    );
-  }
-}
+export const POST = route(async (req) => {
+  const body = await readJson<{ crawlData?: CrawlResult }>(req);
+  if (!body.crawlData) throw new HttpError(400, "crawlData gerekli.");
+  return NextResponse.json({ competitors: generateCompetitors(body.crawlData) });
+});

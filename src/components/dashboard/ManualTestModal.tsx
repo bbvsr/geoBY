@@ -1,27 +1,38 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Check, Link2, Loader2, Save, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Link2, Loader2, Save, X } from "lucide-react";
 import {
+  ALL_MODELS,
   DOMAIN_TYPE_COLORS,
-  MODEL_COLORS,
   MODEL_LABELS,
   type Brand,
   type ModelId,
   type ParsedResponse,
   type Prompt,
 } from "@/types";
-import { cn } from "@/lib/utils";
+import { api } from "@/lib/client";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Select } from "@/components/ui/Input";
+
+/** Soruyu doğrudan ilgili asistanda açan bağlantılar (destekleyenler için). */
+const ASK_URLS: Partial<Record<ModelId, (q: string) => string>> = {
+  openai: (q) => `https://chatgpt.com/?q=${encodeURIComponent(q)}`,
+  claude: (q) => `https://claude.ai/new?q=${encodeURIComponent(q)}`,
+  perplexity: (q) => `https://www.perplexity.ai/search?q=${encodeURIComponent(q)}`,
+  google_aio: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}`,
+  gemini: () => "https://gemini.google.com/app",
+};
 
 export function ManualTestModal({
   brand,
   initialPromptId,
+  initialModel,
   onClose,
   onSaved,
 }: {
   brand: Brand;
   initialPromptId?: string;
+  initialModel?: ModelId;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -29,8 +40,9 @@ export function ManualTestModal({
   const [promptId, setPromptId] = useState(initialPromptId ?? "");
   const [queryText, setQueryText] = useState("");
   const [model, setModel] = useState<ModelId>(
-    (brand.selected_models?.[0] as ModelId) ?? "openai"
+    initialModel ?? brand.selected_models?.[0] ?? "openai"
   );
+  const [copied, setCopied] = useState(false);
   const [response, setResponse] = useState("");
   const [parsed, setParsed] = useState<ParsedResponse | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -38,20 +50,39 @@ export function ManualTestModal({
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
 
-  const models = brand.selected_models?.length
-    ? brand.selected_models
-    : (["openai", "claude", "gemini", "perplexity", "google_aio"] as ModelId[]);
+  // Seçili modeller önce, diğerleri sonra
+  const models = [
+    ...brand.selected_models,
+    ...ALL_MODELS.filter((m) => !brand.selected_models.includes(m)),
+  ];
 
   useEffect(() => {
-    fetch("/api/prompts")
-      .then((r) => r.json())
+    api<{ prompts: Prompt[] }>("/api/prompts")
       .then((d) => {
-        const active = (d.prompts ?? []).filter((p: Prompt) => p.is_active);
+        const active = d.prompts.filter((p) => p.is_active);
         setPrompts(active);
-        if (!promptId && active.length) setPromptId(active[0].id);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        setPromptId((cur) => (cur && active.some((p) => p.id === cur) ? cur : active[0]?.id ?? ""));
+      })
+      .catch((e: Error) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const openUrl = queryText.trim() ? ASK_URLS[model]?.(queryText.trim()) : undefined;
+
+  async function copyQuery() {
+    try {
+      await navigator.clipboard.writeText(queryText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* pano izni yoksa sessiz geç */
+    }
+  }
 
   useEffect(() => {
     const p = prompts.find((x) => x.id === promptId);
@@ -64,13 +95,10 @@ export function ManualTestModal({
     setError("");
     setParsed(null);
     try {
-      const res = await fetch("/api/runs/manual", {
+      const data = await api<{ parsed: ParsedResponse }>("/api/runs/manual", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ analyzeOnly: true, response }),
+        body: { analyzeOnly: true, response },
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       setParsed(data.parsed);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analiz hatası");
@@ -84,13 +112,10 @@ export function ManualTestModal({
     setSaving(true);
     setError("");
     try {
-      const res = await fetch("/api/runs/manual", {
+      const data = await api<{ parsed: ParsedResponse }>("/api/runs/manual", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ promptId, model, queryText, response }),
+        body: { promptId, model, queryText, response },
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
       setParsed(data.parsed);
       setSaved(true);
       onSaved();
@@ -120,8 +145,7 @@ export function ManualTestModal({
           <div>
             <h2 className="text-[14px] font-semibold">Manuel Görünürlük Testi</h2>
             <p className="text-[11px] text-muted-foreground">
-              LLM&apos;e sorduğunuz aramayı ve aldığınız cevabı yapıştırın. API
-              gerekmez.
+              1) Soruyu yapay zekaya sorun · 2) Cevabı buraya yapıştırın · 3) Kaydedin. API gerekmez.
             </p>
           </div>
           <button
@@ -140,7 +164,7 @@ export function ManualTestModal({
             </p>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-[11px] text-muted-foreground">
                 Soru (Prompt)
@@ -177,18 +201,31 @@ export function ManualTestModal({
 
           <div>
             <label className="mb-1 block text-[11px] text-muted-foreground">
-              Arama Promptu (LLM&apos;e sorduğunuz metin)
+              Yapay zekaya sorduğunuz metin
             </label>
-            <Input
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-              placeholder="ör. en iyi e-ticaret araçları neler"
-            />
+            <div className="flex gap-2">
+              <Input
+                value={queryText}
+                onChange={(e) => setQueryText(e.target.value)}
+                placeholder="ör. en iyi e-ticaret araçları neler"
+              />
+              <Button variant="outline" onClick={copyQuery} disabled={!queryText.trim()} title="Soruyu kopyala">
+                {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+              </Button>
+              {openUrl && (
+                <a href={openUrl} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" title={`${MODEL_LABELS[model]}'da aç`}>
+                    <ExternalLink className="h-4 w-4" />
+                    <span className="hidden sm:inline">{MODEL_LABELS[model]}&apos;da sor</span>
+                  </Button>
+                </a>
+              )}
+            </div>
           </div>
 
           <div>
             <label className="mb-1 block text-[11px] text-muted-foreground">
-              Response Promptu (LLM&apos;in verdiği cevap)
+              Yapay zekanın verdiği cevap
             </label>
             <Textarea
               value={response}
@@ -207,7 +244,7 @@ export function ManualTestModal({
           {/* Analiz önizleme */}
           {parsed && <ParsePreview parsed={parsed} brandName={brand.name} />}
 
-          <div className="flex items-center justify-between pt-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
             <Button
               variant="outline"
               onClick={analyze}
@@ -253,7 +290,7 @@ function ParsePreview({
       <div className="mb-2.5 text-[11px] uppercase tracking-wider text-muted-foreground/50">
         Analiz Sonucu
       </div>
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat
           label={`${brandName} geçiyor mu`}
           value={parsed.mentioned ? "Evet" : "Hayır"}
@@ -261,11 +298,11 @@ function ParsePreview({
         />
         <Stat label="Kaç kez" value={String(parsed.mentionCount)} />
         <Stat
-          label="Konum"
+          label="Sıra"
           value={parsed.positionScore ? `#${parsed.positionScore}` : "—"}
         />
         <Stat
-          label="Sentiment"
+          label="Ton"
           value={
             parsed.sentiment === "positive"
               ? "Olumlu"

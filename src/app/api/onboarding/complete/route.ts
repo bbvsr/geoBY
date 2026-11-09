@@ -1,52 +1,52 @@
-import { NextRequest, NextResponse } from "next/server";
-import { completeOnboarding } from "@/lib/supabase-admin";
-import { ALL_MODELS, type ModelId } from "@/types";
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { HttpError, isModelId, readJson, route, str } from "@/lib/http";
+import { ALL_MODELS } from "@/types";
 import { extractDomain } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const {
-      brandName,
-      domain,
-      category,
-      description,
-      prompts = [],
-      competitors = [],
-      selectedModels,
-    } = body;
+export const POST = route(async (req) => {
+  const body = await readJson(req);
+  const brandName = str(body.brandName, 80);
+  const domain = extractDomain(str(body.domain, 200));
+  if (!brandName) throw new HttpError(400, "Marka adı gerekli.");
+  if (!domain.includes(".")) throw new HttpError(400, "Geçerli bir alan adı gerekli.");
 
-    if (!brandName || !domain) {
-      return NextResponse.json(
-        { error: "brandName ve domain gerekli" },
-        { status: 400 }
-      );
-    }
+  if (await db().getPrimaryBrand()) {
+    throw new HttpError(400, "Marka zaten oluşturulmuş. Sayfayı yenileyin.");
+  }
 
-    const models: ModelId[] =
-      Array.isArray(selectedModels) && selectedModels.length
-        ? selectedModels
-        : ALL_MODELS;
+  const models = Array.isArray(body.selectedModels) ? body.selectedModels.filter(isModelId) : [];
 
-    const brand = await completeOnboarding({
-      brandName,
-      domain: extractDomain(domain),
-      category: category || "",
-      description: description || "",
-      selectedModels: models,
-      prompts: prompts.filter((p: { text: string }) => p.text?.trim()),
-      competitors: competitors.filter(
-        (c: { name: string }) => c.name?.trim()
-      ),
+  const seenPrompts = new Set<string>();
+  const prompts = (Array.isArray(body.prompts) ? body.prompts : [])
+    .map((p: { text?: unknown; topic?: unknown }) => ({ text: str(p?.text, 300), topic: str(p?.topic, 40) || "Genel" }))
+    .filter((p: { text: string }) => {
+      const k = p.text.toLocaleLowerCase("tr");
+      if (p.text.length < 3 || seenPrompts.has(k)) return false;
+      seenPrompts.add(k);
+      return true;
     });
 
-    return NextResponse.json({ brand });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "hata" },
-      { status: 500 }
-    );
-  }
-}
+  const seenComp = new Set<string>();
+  const competitors = (Array.isArray(body.competitors) ? body.competitors : [])
+    .map((c: { name?: unknown; domain?: unknown }) => ({ name: str(c?.name, 80), domain: extractDomain(str(c?.domain, 200)) }))
+    .filter((c: { name: string }) => {
+      const k = c.name.toLocaleLowerCase("tr");
+      if (!c.name || seenComp.has(k)) return false;
+      seenComp.add(k);
+      return true;
+    });
+
+  const brand = await db().completeOnboarding({
+    brandName,
+    domain,
+    category: str(body.category, 80),
+    description: str(body.description, 400),
+    selectedModels: models.length ? models : [...ALL_MODELS],
+    prompts,
+    competitors,
+  });
+  return NextResponse.json({ brand });
+});

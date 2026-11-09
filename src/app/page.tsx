@@ -1,28 +1,26 @@
 import { redirect } from "next/navigation";
-import { checkTables, getPrimaryBrand, getCompetitors } from "@/lib/supabase-admin";
+import { db } from "@/lib/db";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { Dashboard } from "@/components/dashboard/Dashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  // 1) Tablolar var mı?
+  const store = db();
+
+  // 1) Supabase kullanılıyorsa tablolar kurulu mu? (Yerel modda her zaman hazır.)
   let tablesOk = false;
   try {
-    const { allTablesExist } = await checkTables();
-    tablesOk = allTablesExist;
+    tablesOk = (await store.checkTables()).allTablesExist;
   } catch {
     tablesOk = false;
   }
   if (!tablesOk) redirect("/setup");
 
-  // 2) Marka var mı?
-  const brand = await getPrimaryBrand();
-  if (!brand) {
-    return <OnboardingFlow />;
-  }
+  // 2) Marka yoksa kurulum sihirbazı, varsa panel
+  const brand = await store.getPrimaryBrand();
+  if (!brand) return <OnboardingFlow />;
 
-  // 3) Dashboard
-  const competitors = await getCompetitors(brand.id);
+  const competitors = await store.getCompetitors(brand.id);
   return <Dashboard brand={brand} competitors={competitors} />;
 }

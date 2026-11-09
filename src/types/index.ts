@@ -154,6 +154,13 @@ export interface CrawlResult {
   keywords: string[];
   competitorHints: string[];
   brandName: string;
+  /** Yapay zeka ile analiz edildiyse önerilen sorular/rakipler */
+  suggestedPrompts?: { text: string; topic: string }[];
+  suggestedCompetitors?: { name: string; domain: string }[];
+  /** Analizi yapan sağlayıcı (yoksa kural tabanlı) */
+  analyzedBy?: string | null;
+  /** Site çekilebildi mi */
+  fetched?: boolean;
 }
 
 export interface RankingRow {
@@ -199,6 +206,7 @@ export interface OverviewMetrics {
 
 export interface RecentChat {
   promptId: string;
+  mentioned: boolean;
   promptText: string;
   models: ModelId[];
   citationCount: number;
@@ -230,6 +238,10 @@ export interface ModelBreakdown {
   sentiment: Sentiment;
   citationCount: number;
   response: string | null;
+  queryText: string | null;
+  source: string | null;
+  date: string | null;
+  competitorsMentioned: string[];
   hasRun: boolean;
 }
 
@@ -241,4 +253,29 @@ export interface ParsedResponse {
   sentiment: Sentiment;
   competitorMentions: Record<string, boolean>;
   citations: { domain: string; url: string; domainType: DomainType }[];
+}
+
+// ---- Yapay zeka bağlantı durumu (/api/ai/status) ----
+export interface AiModelStatus {
+  model: ModelId;
+  auto: boolean;
+  engine: { label: string; free: boolean; exact: boolean } | null;
+  unlockWith: string[];
+}
+
+export interface AiProviderStatus {
+  id: string;
+  label: string;
+  free: boolean;
+  envKey: string | null;
+  signupUrl: string;
+  note: string;
+  configured: boolean;
+}
+
+export interface AiStatus {
+  models: AiModelStatus[];
+  providers: AiProviderStatus[];
+  assistant: string | null;
+  storage: "supabase" | "local";
 }

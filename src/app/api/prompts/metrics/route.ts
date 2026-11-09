@@ -1,24 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
-import {
-  getPrimaryBrand,
-  getPrompts,
-  getRuns,
-} from "@/lib/supabase-admin";
-import { visibility, avgSentiment, avgPosition } from "@/lib/metrics";
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { parseFilters, route } from "@/lib/http";
+import { avgPosition, avgSentiment, visibility } from "@/lib/metrics";
 import type { ModelId, PromptWithMetrics, Run } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  const brand = await getPrimaryBrand();
+export const GET = route(async (req) => {
+  const brand = await db().getPrimaryBrand();
   if (!brand) return NextResponse.json({ prompts: [] });
+  const { days, model } = parseFilters(req);
 
-  const { searchParams } = new URL(req.url);
-  const days = parseInt(searchParams.get("days") || "90", 10);
-  const model = (searchParams.get("model") as ModelId) || undefined;
-
-  const prompts = await getPrompts(brand.id, false);
-  const runs = await getRuns({ brandId: brand.id, days, model });
+  const [prompts, runs] = await Promise.all([
+    db().getPrompts(brand.id, false),
+    db().getRuns({ brandId: brand.id, days, model }),
+  ]);
 
   const byPrompt = new Map<string, Run[]>();
   for (const r of runs) {
@@ -40,4 +36,4 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ prompts: result });
-}
+});

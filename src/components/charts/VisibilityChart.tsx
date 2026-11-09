@@ -92,8 +92,9 @@ export function VisibilityChart({
               dataKey={brand.name}
               stroke={PRIMARY}
               strokeWidth={2}
-              dot={false}
+              dot={{ r: 2.5, fill: PRIMARY, strokeWidth: 0 }}
               activeDot={{ r: 4, fill: PRIMARY }}
+              connectNulls
             />
             {competitors.map((c, i) => (
               <Line
@@ -103,7 +104,8 @@ export function VisibilityChart({
                 stroke={COMPETITOR_COLORS[i % COMPETITOR_COLORS.length]}
                 strokeWidth={1.5}
                 strokeOpacity={0.6}
-                dot={false}
+                dot={{ r: 2, strokeWidth: 0, fill: COMPETITOR_COLORS[i % COMPETITOR_COLORS.length], fillOpacity: 0.6 }}
+                connectNulls
               />
             ))}
           </LineChart>

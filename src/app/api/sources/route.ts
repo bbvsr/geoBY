@@ -1,41 +1,29 @@
-import { NextRequest, NextResponse } from "next/server";
-import {
-  getPrimaryBrand,
-  getRuns,
-  getCitationsForRuns,
-} from "@/lib/supabase-admin";
-import {
-  domainSources,
-  urlSources,
-  domainTypeBreakdown,
-  sourceTrend,
-} from "@/lib/metrics";
-import type { ModelId } from "@/types";
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { parseFilters, route } from "@/lib/http";
+import { domainSources, domainTypeBreakdown, sourceTrend, urlSources } from "@/lib/metrics";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  const brand = await getPrimaryBrand();
-  if (!brand) return NextResponse.json({ sources: [], domainTypes: [] });
+export const GET = route(async (req) => {
+  const brand = await db().getPrimaryBrand();
+  if (!brand) return NextResponse.json({ sources: [], domainTypes: [], trend: [], topDomains: [] });
 
-  const { searchParams } = new URL(req.url);
-  const days = parseInt(searchParams.get("days") || "90", 10);
-  const model = (searchParams.get("model") as ModelId) || undefined;
-  const view = (searchParams.get("view") as "domains" | "urls") || "domains";
+  const { days, model } = parseFilters(req);
+  const view = req.nextUrl.searchParams.get("view") === "urls" ? "urls" : "domains";
 
-  const runs = await getRuns({ brandId: brand.id, days, model });
-  const citations = await getCitationsForRuns(runs.map((r) => r.id));
+  const runs = await db().getRuns({ brandId: brand.id, days, model });
+  const citations = await db().getCitationsForRuns(runs.map((r) => r.id));
 
-  const sources =
-    view === "urls"
-      ? urlSources(citations, runs.length)
-      : domainSources(citations, runs.length);
-  const domainTypes = domainTypeBreakdown(citations);
+  const byDomain = domainSources(citations, runs.length);
+  const sources = view === "urls" ? urlSources(citations, runs.length) : byDomain;
+  const topDomains = byDomain.slice(0, 5).map((s) => s.key);
 
-  const topDomains = domainSources(citations, runs.length)
-    .slice(0, 5)
-    .map((s) => s.key);
-  const trend = sourceTrend(citations, runs, topDomains, 8);
-
-  return NextResponse.json({ sources, domainTypes, trend, topDomains, view });
-}
+  return NextResponse.json({
+    sources,
+    domainTypes: domainTypeBreakdown(citations),
+    trend: sourceTrend(citations, runs, topDomains, 8),
+    topDomains,
+    view,
+  });
+});

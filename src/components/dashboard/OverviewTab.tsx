@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import {
-  Activity,
   AlertCircle,
+  ClipboardPaste,
+  KeyRound,
+  Play,
   Eye,
   ExternalLink,
   FileText,
@@ -32,6 +34,8 @@ import { cn, formatPercent, initials, sentimentColor, timeAgo } from "@/lib/util
 import { MetricCard } from "@/components/ui/MetricCard";
 import { VisibilityChart } from "@/components/charts/VisibilityChart";
 import { Spinner } from "@/components/ui/Spinner";
+import { ErrorBox } from "@/components/ui/ErrorBox";
+import { api } from "@/lib/client";
 
 interface OverviewData {
   metrics: OverviewMetrics;
@@ -51,34 +55,44 @@ export function OverviewTab({
   model,
   brand,
   competitors,
+  refreshKey,
+  canAuto,
+  onRunAll,
+  onManual,
   onOpenPrompt,
+  onGoSettings,
 }: {
   days: number;
   model?: ModelId;
   brand: Brand;
   competitors: Competitor[];
-  onOpenPrompt: (id?: string) => void;
+  refreshKey: number;
+  canAuto: boolean;
+  onRunAll: () => void;
+  onManual: () => void;
+  onOpenPrompt: (id: string) => void;
+  onGoSettings: () => void;
 }) {
   const [data, setData] = useState<OverviewData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
+    setError("");
     const params = new URLSearchParams({ days: String(days) });
     if (model) params.set("model", model);
-    fetch(`/api/overview?${params}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (alive) setData(d);
-      })
-      .finally(() => alive && setLoading(false));
+    api<OverviewData>(`/api/overview?${params}`)
+      .then((d) => alive && setData(d))
+      .catch((e: Error) => alive && setError(e.message));
     return () => {
       alive = false;
     };
-  }, [days, model]);
+  }, [days, model, refreshKey, retry]);
 
-  if (loading || !data) {
+  if (error && !data) return <ErrorBox message={error} onRetry={() => setRetry((r) => r + 1)} />;
+
+  if (!data) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Spinner className="h-6 w-6" />
@@ -97,7 +111,7 @@ export function OverviewTab({
   return (
     <div className="space-y-6">
       {/* Alarm bandı */}
-      {dueAlarm && (
+      {dueAlarm && !isEmpty && (
         <div className="flex items-center gap-2.5 rounded-lg border border-warning/30 bg-warning/[0.08] px-4 py-2.5">
           <AlertCircle className="h-4 w-4 text-warning" />
           <span className="text-[13px] text-foreground">
@@ -105,28 +119,23 @@ export function OverviewTab({
             setinizi tekrar test edip görünürlüğü güncelleyin.
           </span>
           <button
-            onClick={() => onOpenPrompt()}
-            className="ml-auto text-[12px] font-medium text-warning hover:underline"
+            onClick={canAuto ? onRunAll : onManual}
+            className="ml-auto shrink-0 text-[12px] font-medium text-warning hover:underline"
           >
-            Manuel Test →
+            {canAuto ? "Şimdi test et →" : "Manuel Test →"}
           </button>
         </div>
       )}
 
       {isEmpty && (
-        <div className="flex items-center gap-2.5 rounded-lg border border-primary/25 bg-primary/[0.06] px-4 py-3">
-          <Activity className="h-4 w-4 text-primary" />
-          <span className="text-[13px] text-foreground">
-            Henüz test verisi yok. Bir sorunun LLM cevabını{" "}
-            <button
-              onClick={() => onOpenPrompt()}
-              className="font-medium text-primary hover:underline"
-            >
-              Manuel Test
-            </button>{" "}
-            ekranından yapıştırarak görünürlük ölçmeye başlayın.
-          </span>
-        </div>
+        <GettingStarted
+          brandName={brand.name}
+          promptCount={data.promptCount}
+          canAuto={canAuto}
+          onRunAll={onRunAll}
+          onManual={onManual}
+          onGoSettings={onGoSettings}
+        />
       )}
 
       {/* Metrikler + Chart */}
@@ -139,17 +148,17 @@ export function OverviewTab({
             change={m.visibilityChange}
           />
           <MetricCard
-            label="Geçtiği Testler"
+            label="Geçtiği Cevaplar"
             value={`${m.mentionedRuns} / ${m.totalRuns}`}
             icon={Target}
           />
           <MetricCard
-            label="Ort. Sentiment"
-            value={String(m.avgSentiment)}
+            label="Ort. Ton (0-100)"
+            value={m.mentionedRuns ? String(m.avgSentiment) : "—"}
             icon={Smile}
           />
           <MetricCard
-            label="Ort. Konum"
+            label="Ort. Sıra"
             value={m.avgPosition ? `#${m.avgPosition.toFixed(1)}` : "—"}
             icon={Gauge}
           />
@@ -172,7 +181,7 @@ export function OverviewTab({
 
       {/* Sıralama + AI Etki */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="min-w-0 lg:col-span-2">
           <RankingsTable rankings={data.rankings} />
         </div>
         <AiImpact metrics={m} insight={data.insight} />
@@ -183,7 +192,7 @@ export function OverviewTab({
 
       {/* Kaynak özeti + Domain tipleri */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="min-w-0 lg:col-span-2">
           <SourcesSummary sources={data.sources} />
         </div>
         <DomainTypes types={data.domainTypes} />
@@ -201,17 +210,21 @@ function RankingsTable({ rankings }: { rankings: RankingRow[] }) {
   return (
     <div className="rounded-lg border border-border/40 bg-card/60">
       <div className="border-b border-border/30 px-5 py-3">
-        <h3 className="text-[13px] font-semibold">Sıralama</h3>
+        <h3 className="text-[13px] font-semibold">Marka Sıralaması</h3>
+        <p className="text-[11px] text-muted-foreground">
+          Görünürlük: cevapların yüzde kaçında geçtiği · SOV: tüm marka geçişleri içindeki payı
+        </p>
       </div>
-      <table className="w-full text-[13px]">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px] text-[13px]">
         <thead>
           <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/40">
             <th className="px-5 py-2 text-left font-medium">#</th>
             <th className="px-2 py-2 text-left font-medium">Marka</th>
             <th className="px-2 py-2 text-left font-medium">Görünürlük</th>
             <th className="px-2 py-2 text-left font-medium">SOV</th>
-            <th className="px-2 py-2 text-left font-medium">Sentiment</th>
-            <th className="px-5 py-2 text-right font-medium">Konum</th>
+            <th className="px-2 py-2 text-left font-medium">Ton</th>
+            <th className="px-5 py-2 text-right font-medium">Sıra</th>
           </tr>
         </thead>
         <tbody>
@@ -260,18 +273,22 @@ function RankingsTable({ rankings }: { rankings: RankingRow[] }) {
                 </div>
               </td>
               <td className="px-2 py-2.5 tabular-nums text-muted-foreground">
-                {r.isYou ? formatPercent(r.sov) : "—"}
+                {formatPercent(r.sov)}
               </td>
               <td className="px-2 py-2.5">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: sentimentColor(r.sentiment) }}
-                  />
-                  <span className="tabular-nums text-muted-foreground">
-                    {r.sentiment}
+                {r.sentiment > 0 ? (
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: sentimentColor(r.sentiment) }}
+                    />
+                    <span className="tabular-nums text-muted-foreground">
+                      {r.sentiment}
+                    </span>
                   </span>
-                </span>
+                ) : (
+                  <span className="text-muted-foreground/40">—</span>
+                )}
               </td>
               <td
                 className={cn(
@@ -285,6 +302,7 @@ function RankingsTable({ rankings }: { rankings: RankingRow[] }) {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -302,7 +320,7 @@ function AiImpact({
       <div className="flex items-center justify-around">
         <Circle
           value={`#${metrics.competitiveRank}`}
-          label="Rekabet Sırası"
+          label="Rakipler İçinde"
           className="bg-primary/10 text-primary ring-1 ring-primary/20"
         />
         <Circle
@@ -519,7 +537,12 @@ function RecentChats({
             className="rounded-lg border border-border/40 bg-card/60 p-4 text-left transition-colors hover:bg-white/[0.02]"
           >
             <div className="flex items-start gap-2">
-              <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+              <MessageSquare
+                className={cn(
+                  "mt-0.5 h-3.5 w-3.5 shrink-0",
+                  c.mentioned ? "text-success" : "text-muted-foreground/50"
+                )}
+              />
               <span className="line-clamp-2 text-[13px] leading-snug">
                 {c.promptText}
               </span>
@@ -547,13 +570,63 @@ function RecentChats({
                   className="inline-block h-1.5 w-1.5 rounded-full"
                   style={{ backgroundColor: sentimentColor(c.sentiment) }}
                 />
-                {c.sentiment}
+                {c.mentioned ? c.sentiment : "geçmiyor"}
               </span>
               <span>{c.position ? `#${c.position.toFixed(1)}` : "—"}</span>
               <span className="ml-auto">{timeAgo(c.date)}</span>
             </div>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function GettingStarted({
+  brandName,
+  promptCount,
+  canAuto,
+  onRunAll,
+  onManual,
+  onGoSettings,
+}: {
+  brandName: string;
+  promptCount: number;
+  canAuto: boolean;
+  onRunAll: () => void;
+  onManual: () => void;
+  onGoSettings: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-primary/25 bg-primary/[0.05] p-5">
+      <h2 className="text-[15px] font-semibold">İlk ölçümü yapalım</h2>
+      <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
+        GeoBY, {promptCount} sorunuzu yapay zeka asistanlarına sorar ve cevaplarda{" "}
+        <span className="text-foreground">{brandName}</span> geçiyor mu, kaçıncı sırada, hangi
+        tonla ve hangi kaynaklarla diye ölçer.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {canAuto ? (
+          <button
+            onClick={onRunAll}
+            className="flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-[13px] font-medium text-primary-foreground hover:opacity-90"
+          >
+            <Play className="h-4 w-4" /> Tüm soruları otomatik test et
+          </button>
+        ) : (
+          <button
+            onClick={onGoSettings}
+            className="flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-[13px] font-medium text-primary-foreground hover:opacity-90"
+          >
+            <KeyRound className="h-4 w-4" /> Ücretsiz AI anahtarı ekle (2 dk)
+          </button>
+        )}
+        <button
+          onClick={onManual}
+          className="flex items-center gap-2 rounded-md border border-border/60 px-3.5 py-2 text-[13px] hover:bg-white/[0.04]"
+        >
+          <ClipboardPaste className="h-4 w-4" /> Cevabı elle yapıştır
+        </button>
       </div>
     </div>
   );

@@ -1,70 +1,49 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { parseFilters, route } from "@/lib/http";
 import {
-  getPrimaryBrand,
-  getCompetitors,
-  getPrompts,
-  getRuns,
-  getCitationsForRuns,
-  getSchedule,
-} from "@/lib/supabase-admin";
-import {
-  rankings,
-  visibilityTrend,
   domainSources,
   domainTypeBreakdown,
   overviewMetrics,
+  rankings,
   recentChats,
   visibility,
+  visibilityTrend,
 } from "@/lib/metrics";
 import { buildActions, keyInsight } from "@/lib/actions";
-import type { ModelId } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  const brand = await getPrimaryBrand();
+export const GET = route(async (req) => {
+  const store = db();
+  const brand = await store.getPrimaryBrand();
   if (!brand) return NextResponse.json({ brand: null });
 
-  const { searchParams } = new URL(req.url);
-  const days = parseInt(searchParams.get("days") || "7", 10);
-  const model = (searchParams.get("model") as ModelId) || undefined;
+  const { days, model } = parseFilters(req, 90);
 
-  const competitors = await getCompetitors(brand.id);
-  const prompts = await getPrompts(brand.id, false);
+  const [competitors, prompts, allRuns, schedule] = await Promise.all([
+    store.getCompetitors(brand.id),
+    store.getPrompts(brand.id, false),
+    store.getRuns({ brandId: brand.id, model }),
+    store.getSchedule(brand.id),
+  ]);
 
-  const runs = await getRuns({ brandId: brand.id, days, model });
-  const allRuns = await getRuns({ brandId: brand.id, model });
-  const trendRuns = await getRuns({
-    brandId: brand.id,
-    days: Math.max(days, 56),
-    model,
-  });
+  const now = Date.now();
+  const inDays = (d: number) => allRuns.filter((r) => now - new Date(r.created_at).getTime() <= d * 86400000);
+  const runs = inDays(days);
+  const trendRuns = inDays(Math.max(days, 56));
 
-  const citations = await getCitationsForRuns(runs.map((r) => r.id));
+  const citations = await store.getCitationsForRuns(runs.map((r) => r.id));
 
   const ranked = rankings(runs, brand, competitors);
-  const metrics = overviewMetrics(
-    runs,
-    allRuns,
-    citations,
-    ranked,
-    brand,
-    days
-  );
+  const metrics = overviewMetrics(runs, allRuns, citations, ranked, brand, days);
   const trend = visibilityTrend(trendRuns, brand, competitors, 8);
   const sources = domainSources(citations, runs.length);
   const domainTypes = domainTypeBreakdown(citations);
-  const actions = buildActions(brand, ranked, sources, domainTypes);
-  const chats = recentChats(runs, prompts, citations);
+  const actions = buildActions(brand, ranked, sources, domainTypes, runs.length);
 
-  const compVis = competitors.length
-    ? ranked
-        .filter((r) => !r.isYou)
-        .reduce((s, r) => s + r.visibility, 0) / competitors.length
-    : 0;
-  const insight = keyInsight(brand, visibility(runs), compVis);
-
-  const schedule = await getSchedule(brand.id);
+  const others = ranked.filter((r) => !r.isYou);
+  const compVis = others.length ? others.reduce((s, r) => s + r.visibility, 0) / others.length : 0;
 
   return NextResponse.json({
     brand,
@@ -75,9 +54,9 @@ export async function GET(req: NextRequest) {
     sources: sources.slice(0, 8),
     domainTypes,
     actions,
-    insight,
-    recentChats: chats,
+    insight: keyInsight(brand, visibility(runs), compVis, runs.length),
+    recentChats: recentChats(runs, prompts, citations),
     schedule,
     promptCount: prompts.filter((p) => p.is_active).length,
   });
-}
+});

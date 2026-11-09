@@ -1,99 +1,73 @@
 # GeoBY
 
-**Manuel AEO / LLM Görünürlük Monitörü** — Markanızın yapay zeka asistanlarındaki (ChatGPT, Claude, Gemini, Perplexity, Google AI Overview) görünürlüğünü ölçen ve artırmak için öneriler veren bir uygulama.
+**Yapay zeka görünürlük takibi (GEO).** ChatGPT, Gemini, Claude, Perplexity ve Google AI Overview müşterilerinize sizi öneriyor mu? GeoBY, müşterilerinizin soracağı soruları bu asistanlara sorar ve cevaplarda markanızın **geçip geçmediğini, kaçıncı sırada, hangi tonla ve hangi kaynaklarla** önerildiğini ölçer; rakiplerle karşılaştırır ve ne yapmanız gerektiğini söyler.
 
-> İlk etapta **API key ile bağlantı kurmaz.** Görünürlük ölçümü, LLM cevaplarını **manuel** yapıştırdığınız "Manuel Test" ekranından yürür. API entegrasyonu kodda hazırdır ama `LLM_API_ENABLED=false` ile kapalıdır (ikinci etap için iskelet mevcut).
-
----
-
-## Özellikler
-
-- 🔍 **Manuel görünürlük testi** — Bir soru + model için arama promptunu ve LLM cevabını yapıştırın; sistem analiz eder: marka geçiyor mu, **kaç kez**, konum (1–5), sentiment, rakip geçişleri, alıntılanan kaynaklar.
-- 🧠 **Kural-tabanlı soru üretimi** — Marka/kategori/rakip bilgisinden ticari-niyetli Türkçe sorular önerir (LLM gerektirmez).
-- 🌐 **Site tarama** — Onboarding'de siteyi tarayıp başlık/açıklama/kategori çıkarır (LLM'siz).
-- 📊 **Dashboard** — Görünürlük, Share of Voice, sentiment, konum, haftalık trend grafiği, rakip sıralaması ve dinamik aksiyon önerileri.
-- 🔗 **Kaynak analizi** — Alıntılanan domain/URL'lerin sınıflandırması (You / Competitor / UGC / Editorial / Reference / Institutional / Corporate).
-- ⏰ **Alarm** — Haftalık/aylık yeniden test hatırlatması.
-- 🗂️ **Belge yükleme** — Marka belgeleri Supabase Storage'a.
-
-## Nasıl çalışır (8 adım)
-
-1. **Onboarding** — İlk açılışta marka oluşturulur (MVP: tek marka, auth yok).
-2. **Site / belge yükleme** — Site taranır, belgeler yüklenir.
-3. **Soru üretimi** — Kural-tabanlı Türkçe soru önerileri.
-4. **Onay / düzenle / sil** — Sorular sekmesi.
-5. **Model seçimi** — Ayarlar'dan hangi modeller test edilecek.
-6. **Manuel görünürlük testi** — Cevabı yapıştır → analiz → kaydet.
-7. **Alarm** — Haftalık/aylık hatırlatma.
-8. **İzleme** — Genel Bakış'ta durum + önceki döneme göre değişim.
-
-## Teknoloji
-
-Next.js 15 (App Router, `src/`) · TypeScript · Tailwind CSS v4 · Recharts · Supabase (PostgreSQL) · lucide-react
-
-## Kurulum
-
-### 1) Bağımlılıklar
+## 1 dakikada çalıştır
 
 ```bash
 npm install
+npm run dev
 ```
 
-### 2) Ortam değişkenleri
+`http://localhost:3000` → web sitenizi girin → soruları ve rakipleri onaylayın → **Tüm Soruları Test Et**.
 
-`.env.example` dosyasını `.env.local` olarak kopyalayıp Supabase proje bilgilerinizi girin:
+Hiçbir ayar gerekmez: veriler `.data/geoby.json` dosyasında saklanır, ölçümler **Manuel Test** ile (soruyu asistana sorup cevabı yapıştırarak) yapılabilir.
+
+## Otomatik test için ücretsiz yapay zeka anahtarları (önerilen)
 
 ```bash
 cp .env.example .env.local
 ```
 
-| Değişken | Açıklama |
-|---|---|
-| `SUPABASE_URL` | Supabase proje URL'i |
-| `SUPABASE_SECRET_KEY` | Server-side secret key (asla client'a gitmez) |
-| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Client için publishable key |
-| `LLM_API_ENABLED` | İkinci etap; `false` bırakın |
+| Anahtar | Nereden (ücretsiz) | Ne açar |
+|---|---|---|
+| `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Gemini ölçümü + Google arama kaynakları + kurulumda site analizi |
+| `GROQ_API_KEY` | https://console.groq.com/keys | ChatGPT ölçümü (OpenAI'nin açık modeli `gpt-oss-120b`) |
+| `OPENROUTER_API_KEY` | https://openrouter.ai/keys | Groq'a alternatif (`:free` modeller) |
+| — | Pollinations (anahtarsız) | Hiç anahtar yoksa son çare; yavaş ve hız sınırlı |
 
-### 3) Veritabanı (tek seferlik)
+Anahtarı ekledikten sonra `npm run dev`'i yeniden başlatın. **Ayarlar → Yapay Zeka Bağlantıları** ekranında hangi modelin otomatik/manuel olduğunu görüp "Test et" ile bağlantıyı deneyebilirsiniz.
 
-Tablolar yoksa uygulama `/setup`'a yönlenir.
+Ücretli (isteğe bağlı): `OPENAI_API_KEY` (gerçek ChatGPT), `ANTHROPIC_API_KEY` (Claude), `PERPLEXITY_API_KEY` (Perplexity). Bunlar yoksa o modeller Manuel Test ile ölçülür. Google AI Overview'un ücretsiz API'si olmadığı için her zaman manueldir.
 
-1. Supabase panelinde **SQL Editor**'ü açın.
-2. [`sql/schema.sql`](sql/schema.sql) içeriğini yapıştırıp **Run** deyin.
-3. `/setup` sayfasında **"Tabloları Kontrol Et"** — hepsi yeşil olmalı.
+> **Dürüstlük notu:** OpenAI anahtarı yokken "ChatGPT" sonucu, OpenAI'nin açık modeli gpt-oss ile alınır — gerçek ChatGPT'ye yakın ama aynısı değildir. Arayüzde bu her zaman belirtilir.
 
-### 4) Çalıştır
+## Ne ölçülür?
+
+- **Görünürlük** — cevapların yüzde kaçında markanız geçiyor
+- **Sıra** — numaralı listede kaçıncı madde; liste yoksa cevapta geçen markalar arasındaki sırası (1 = en iyi)
+- **Ton** — markanın geçtiği cümlelerdeki olumlu/olumsuz ifadeler (0–100)
+- **SOV** — tüm marka geçişleri içindeki payınız
+- **Kaynaklar** — cevapta/aramada gösterilen siteler; Siz / Rakip / Kullanıcı içeriği / Editoryal / Referans / Kurumsal
+- **Aksiyonlar** — verilere göre site içi ve site dışı somut öneriler
+
+Cevap analizi yapay zeka kullanmaz (hızlı, tutarlı, ücretsiz). Yapay zeka; soruları asistanlara sormak ve kurulumda siteyi analiz edip soru/rakip önermek için kullanılır.
+
+## Supabase ile kullanım (sunucu / ekip)
+
+`.env.local` içine `SUPABASE_URL` ve `SUPABASE_SECRET_KEY` girin. Tablolar yoksa uygulama `/setup` sayfasına yönlendirir; [`sql/schema.sql`](sql/schema.sql) dosyasını Supabase SQL Editor'de çalıştırın. Vercel gibi dosya sistemi kalıcı olmayan ortamlarda Supabase gereklidir.
+
+## Geliştirme
 
 ```bash
-npm run dev
+npm run typecheck   # TypeScript
+npm test            # birim testleri (parser, metrikler, AI sağlayıcıları, yerel veritabanı)
+npm run build
 ```
-
-`http://localhost:3000` açın → onboarding → **Manuel Test** → Genel Bakış.
-
-## Proje yapısı
 
 ```
 src/
-├── app/
-│   ├── page.tsx              # Kök: setup / onboarding / dashboard yönlendirmesi
-│   ├── setup/                # DB kurulum sihirbazı
-│   └── api/                  # brand, overview, sources, prompts, runs/manual, models, schedules, documents, onboarding/*
-├── components/
-│   ├── ui/ · charts/         # Tasarım sistemi + Recharts grafikleri
-│   ├── dashboard/            # Overview / Prompts / Sources / Settings sekmeleri + Manuel Test modalı
-│   └── onboarding/           # OnboardingFlow
-├── lib/
-│   ├── parser.ts             # Cevap analizi (mention, sayım, konum, sentiment, kaynak) — LLM YOK
-│   ├── generators.ts         # Kural-tabanlı Türkçe soru/rakip önerisi
-│   ├── scraper.ts            # Basit site tarama
-│   ├── metrics.ts            # Görünürlük, SOV, trend, kaynak oranları
-│   ├── supabase-admin.ts     # Server-side DB işlemleri
-│   └── llm/                  # API entegrasyon iskeleti (pasif)
-└── types/
-sql/schema.sql                # Supabase şeması
+├── app/            # sayfalar + API (brand, competitors, prompts, prompts/run, runs/manual, ai/status, ai/test, overview, sources, …)
+├── components/     # dashboard sekmeleri, modallar, grafikler, UI
+└── lib/
+    ├── ai/         # providers (Gemini, Groq, OpenRouter, Pollinations, OpenAI, Anthropic, Perplexity), engines, assistant
+    ├── db/         # DataStore arayüzü: local (JSON dosyası) ve supabase
+    ├── parser.ts   # cevap analizi
+    ├── metrics.ts  # görünürlük, SOV, trend, kaynaklar
+    ├── testing.ts  # test çalıştırma ve kaydetme
+    └── generators.ts / scraper.ts  # kurulum analizi
 ```
 
-## Güvenlik notları
+## Güvenlik
 
-- `.env.local` **git'e dahil edilmez** (`.gitignore`). Supabase secret key yalnızca server-side kullanılır.
-- MVP'de kimlik doğrulama yoktur (tek marka). Çok kullanıcılı kullanım için Supabase Auth + RLS eklenmelidir.
+API anahtarları yalnızca sunucuda okunur, tarayıcıya gönderilmez. `.env.local` ve `.data/` git'e eklenmez. Uygulamada kullanıcı girişi yoktur (tek marka); internete açık kurulumda önüne bir kimlik doğrulama katmanı koyun.

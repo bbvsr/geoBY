@@ -1,31 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
-import {
-  getPrimaryBrand,
-  getSchedule,
-  upsertSchedule,
-} from "@/lib/supabase-admin";
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { readJson, requireBrand, route } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const brand = await getPrimaryBrand();
+export const GET = route(async () => {
+  const brand = await db().getPrimaryBrand();
   if (!brand) return NextResponse.json({ schedule: null });
-  const schedule = await getSchedule(brand.id);
-  return NextResponse.json({ schedule });
-}
+  return NextResponse.json({ schedule: await db().getSchedule(brand.id) });
+});
 
-export async function PUT(req: NextRequest) {
-  const brand = await getPrimaryBrand();
-  if (!brand)
-    return NextResponse.json({ error: "marka yok" }, { status: 400 });
-  const { frequency, isActive } = (await req.json()) as {
-    frequency: "weekly" | "monthly";
-    isActive: boolean;
-  };
-  const schedule = await upsertSchedule(
+export const PUT = route(async (req) => {
+  const brand = await requireBrand();
+  const { frequency, isActive } = await readJson(req);
+  const schedule = await db().saveSchedule(
     brand.id,
     frequency === "monthly" ? "monthly" : "weekly",
     isActive !== false
   );
   return NextResponse.json({ schedule });
-}
+});

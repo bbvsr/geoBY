@@ -55,11 +55,16 @@ async function fetchPath(base: string, path: string): Promise<string> {
   try {
     const url = base.replace(/\/$/, "") + path;
     const res = await fetch(url, {
-      headers: { "User-Agent": "GeoBY-Crawler/1.0" },
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; GeoBY/1.0; +https://github.com/bbvsr/geoBY)",
+        Accept: "text/html,application/xhtml+xml",
+      },
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return "";
-    return await res.text();
+    const type = res.headers.get("content-type") ?? "";
+    if (type && !type.includes("html")) return "";
+    return (await res.text()).slice(0, 500_000);
   } catch {
     return "";
   }
@@ -71,49 +76,72 @@ function normalizeBase(input: string): string {
   return s;
 }
 
-/** Basit HTML crawl — LLM yok. Başlık, meta, başlıklardan yapı çıkarır. */
-export async function crawlWebsite(rawUrl: string): Promise<CrawlResult> {
+export interface SiteSnapshot {
+  result: CrawlResult;
+  /** Yapay zeka analizine verilecek sade metin (başlıklar + gövde) */
+  text: string;
+}
+
+/** Basit HTML crawl — başlık, meta ve başlıklardan yapı çıkarır. */
+export async function crawlWebsite(rawUrl: string): Promise<SiteSnapshot> {
   const base = normalizeBase(rawUrl);
   const domain = extractDomain(base);
 
-  // Ana sayfa + birkaç yol paralel çekilir
-  const homeHtml = await fetchPath(base, "");
-  const others = await Promise.all(
-    PATHS.slice(1).map((p) => fetchPath(base, p))
-  );
-  const allHtml = [homeHtml, ...others].filter(Boolean).join(" ");
+  // Ana sayfa + birkaç alt sayfa paralel çekilir
+  const pages = await Promise.all(PATHS.map((p) => fetchPath(base, p)));
+  const homeHtml = pages[0];
+  const allHtml = pages.filter(Boolean).join(" ");
 
-  const title = extractTitle(homeHtml) || domain;
-  const description =
+  const title = decodeEntities(extractTitle(homeHtml)) || domain;
+  const description = decodeEntities(
     extractMeta(homeHtml, "description") ||
-    extractMeta(homeHtml, "og:description") ||
-    stripHtml(homeHtml).slice(0, 200);
-  const headings = extractHeadings(allHtml);
+      extractMeta(homeHtml, "og:description") ||
+      stripHtml(homeHtml).slice(0, 200)
+  );
+  const headings = extractHeadings(allHtml).map(decodeEntities);
   const bodyText = stripHtml(homeHtml).slice(0, 2000);
 
   // Marka adı: og:site_name > title'ın ilk parçası > domain kökü
   const siteName =
-    extractMeta(homeHtml, "og:site_name") ||
+    decodeEntities(extractMeta(homeHtml, "og:site_name")) ||
     title.split(/[|\-–—:]/)[0].trim() ||
     domain.split(".")[0];
 
-  // Kategori tahmini (kaba anahtar kelime eşleşmesi)
-  const category = guessCategory(
-    `${title} ${description} ${headings.join(" ")} ${bodyText}`
-  );
+  const category = guessCategory(`${title} ${description} ${headings.join(" ")} ${bodyText}`);
 
-  const keywords = extractKeywords(headings, description);
+  const text = [
+    `Başlık: ${title}`,
+    `Açıklama: ${description}`,
+    `Sayfa başlıkları: ${headings.join(" · ")}`,
+    `İçerik: ${pages.filter(Boolean).map((h) => stripHtml(h).slice(0, 1500)).join(" … ").slice(0, 6000)}`,
+  ].join("\n");
 
   return {
-    title,
-    description,
-    category,
-    targetAudience: "",
-    coreUseCase: headings[0] || description.slice(0, 80),
-    keywords,
-    competitorHints: [],
-    brandName: siteName,
+    result: {
+      title,
+      description,
+      category,
+      targetAudience: "",
+      coreUseCase: headings[0] || description.slice(0, 80),
+      keywords: extractKeywords(headings, description),
+      competitorHints: [],
+      brandName: siteName,
+      fetched: !!homeHtml,
+      analyzedBy: null,
+    },
+    text,
   };
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .trim();
 }
 
 const CATEGORY_HINTS: [string, string[]][] = [
@@ -124,7 +152,7 @@ const CATEGORY_HINTS: [string, string[]][] = [
   ["ajans", ["ajans", "agency", "danışmanlık", "hizmet"]],
   ["eğitim", ["eğitim", "kurs", "course", "öğren", "akademi"]],
   ["fintech", ["ödeme", "finans", "banka", "fintech", "cüzdan"]],
-  ["yapay zeka aracı", ["yapay zeka", "ai", "makine öğren", "asistan"]],
+  ["yapay zeka aracı", ["yapay zeka", " ai ", "ai-powered", "makine öğren", "asistan"]],
 ];
 
 function guessCategory(text: string): string {

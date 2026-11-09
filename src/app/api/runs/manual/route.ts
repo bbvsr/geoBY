@@ -1,92 +1,46 @@
-import { NextRequest, NextResponse } from "next/server";
-import {
-  getPrimaryBrand,
-  getCompetitors,
-  getPromptById,
-  createRun,
-  createCitations,
-} from "@/lib/supabase-admin";
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { HttpError, isModelId, readJson, requireBrand, route, str } from "@/lib/http";
 import { parseResponse } from "@/lib/parser";
-import type { ModelId, ParsedResponse } from "@/types";
+import { saveTestResult } from "@/lib/testing";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Manuel görünürlük testi:
- * Kullanıcı bir prompt+model için arama promptunu ve LLM cevabını yapıştırır.
- * Sistem cevabı analiz edip run + citation kayıtları oluşturur.
- * Body: { promptId, model, queryText, response }
- * Ya da sadece analiz önizlemesi için: { analyzeOnly: true, response }
+ * Manuel görünürlük testi: kullanıcı LLM'e sorduğu metni ve aldığı cevabı yapıştırır.
+ * Body: { promptId, model, queryText, response }  veya önizleme için { analyzeOnly: true, response }
  */
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const brand = await getPrimaryBrand();
-    if (!brand)
-      return NextResponse.json({ error: "marka yok" }, { status: 400 });
+export const POST = route(async (req) => {
+  const brand = await requireBrand();
+  const body = await readJson(req);
+  const response = typeof body.response === "string" ? body.response.slice(0, 100_000) : "";
+  if (!response.trim()) throw new HttpError(400, "Cevap metni boş olamaz.");
 
-    const competitors = await getCompetitors(brand.id);
-    const responseText: string = body.response ?? "";
+  const competitors = await db().getCompetitors(brand.id);
 
-    const parsed: ParsedResponse = parseResponse({
-      response: responseText,
+  if (body.analyzeOnly) {
+    const parsed = parseResponse({
+      response,
       brandName: brand.name,
       brandDomain: brand.domain,
       competitors,
-      extraCitations: Array.isArray(body.extraCitations)
-        ? body.extraCitations
-        : [],
     });
-
-    // Sadece önizleme istendiyse kaydetmeden dön
-    if (body.analyzeOnly) {
-      return NextResponse.json({ parsed });
-    }
-
-    const { promptId, model, queryText } = body as {
-      promptId: string;
-      model: ModelId;
-      queryText: string;
-    };
-    if (!promptId || !model) {
-      return NextResponse.json(
-        { error: "promptId ve model gerekli" },
-        { status: 400 }
-      );
-    }
-    const prompt = await getPromptById(promptId);
-    if (!prompt)
-      return NextResponse.json({ error: "prompt yok" }, { status: 404 });
-
-    const run = await createRun({
-      prompt_id: promptId,
-      model,
-      response: responseText,
-      query_text: queryText || prompt.text,
-      mentioned: parsed.mentioned,
-      mention_count: parsed.mentionCount,
-      position_score: parsed.positionScore,
-      sentiment: parsed.sentiment,
-      competitor_mentions: parsed.competitorMentions,
-      source: "manual",
-    });
-
-    if (run) {
-      await createCitations(
-        run.id,
-        parsed.citations.map((c) => ({
-          domain: c.domain,
-          url: c.url,
-          domain_type: c.domainType,
-        }))
-      );
-    }
-
-    return NextResponse.json({ run, parsed });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "hata" },
-      { status: 500 }
-    );
+    return NextResponse.json({ parsed });
   }
-}
+
+  if (!isModelId(body.model)) throw new HttpError(400, "Geçerli bir model seçin.");
+  const prompt = typeof body.promptId === "string" ? await db().getPromptById(body.promptId) : null;
+  if (!prompt) throw new HttpError(404, "Soru bulunamadı.");
+
+  const result = await saveTestResult({
+    brand,
+    competitors,
+    prompt,
+    model: body.model,
+    queryText: str(body.queryText, 1000),
+    response,
+    source: "manual",
+  });
+  await db().markTested(brand.id);
+  return NextResponse.json(result);
+});

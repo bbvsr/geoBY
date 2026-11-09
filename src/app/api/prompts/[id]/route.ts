@@ -1,38 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
-import {
-  getPromptById,
-  getRunsForPrompt,
-  getCitationsForRuns,
-} from "@/lib/supabase-admin";
-import { ALL_MODELS, type ModelBreakdown, type ModelId } from "@/types";
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { HttpError, route } from "@/lib/http";
+import { ALL_MODELS, type ModelBreakdown } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = route<{ params: Promise<{ id: string }> }>(async (_req, { params }) => {
   const { id } = await params;
-  const prompt = await getPromptById(id);
-  if (!prompt)
-    return NextResponse.json({ error: "prompt yok" }, { status: 404 });
+  const prompt = await db().getPromptById(id);
+  if (!prompt) throw new HttpError(404, "Soru bulunamadı.");
 
-  const runs = await getRunsForPrompt(id);
-  const citations = await getCitationsForRuns(runs.map((r) => r.id));
-
+  const runs = await db().getRunsForPrompt(id); // en yeni önce
+  const citations = await db().getCitationsForRuns(runs.map((r) => r.id));
   const citByRun = new Map<string, number>();
-  for (const c of citations)
-    citByRun.set(c.run_id, (citByRun.get(c.run_id) ?? 0) + 1);
+  for (const c of citations) citByRun.set(c.run_id, (citByRun.get(c.run_id) ?? 0) + 1);
 
-  // Her model için en son run
-  const modelBreakdown: ModelBreakdown[] = ALL_MODELS.map((model: ModelId) => {
-    const modelRuns = runs
-      .filter((r) => r.model === model)
-      .sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-    const latest = modelRuns[0];
+  // Her model için en son test
+  const modelBreakdown: ModelBreakdown[] = ALL_MODELS.map((model) => {
+    const latest = runs.find((r) => r.model === model);
     if (!latest) {
       return {
         model,
@@ -42,20 +27,30 @@ export async function GET(
         sentiment: "neutral",
         citationCount: 0,
         response: null,
+        queryText: null,
+        source: null,
+        date: null,
+        competitorsMentioned: [],
         hasRun: false,
       };
     }
     return {
       model,
       mentioned: latest.mentioned,
-      mentionCount: latest.mention_count,
+      mentionCount: latest.mention_count ?? 0,
       position: latest.position_score,
       sentiment: latest.sentiment,
       citationCount: citByRun.get(latest.id) ?? 0,
       response: latest.response,
+      queryText: latest.query_text,
+      source: latest.source,
+      date: latest.created_at,
+      competitorsMentioned: Object.entries(latest.competitor_mentions ?? {})
+        .filter(([, v]) => v)
+        .map(([k]) => k),
       hasRun: true,
     };
   });
 
-  return NextResponse.json({ prompt, runs, citations, modelBreakdown });
-}
+  return NextResponse.json({ prompt, modelBreakdown, totalRuns: runs.length });
+});
