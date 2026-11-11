@@ -124,6 +124,12 @@ export function createLocalStore(dataDir: string): DataStore {
         if (b) b.selected_models = models;
       }),
 
+    updateSamples: (brandId, samples) =>
+      write((d) => {
+        const b = d.brands.find((x) => x.id === brandId);
+        if (b) b.samples = samples;
+      }),
+
     completeOnboarding: (p) =>
       write((d) => {
         const brand: Brand = {

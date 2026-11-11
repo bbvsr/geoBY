@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS brands (
   category TEXT,
   description TEXT,
   selected_models TEXT[] DEFAULT ARRAY['openai','claude','gemini','perplexity','google_aio']::TEXT[],
+  samples INT DEFAULT 1,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS runs (
   sentiment TEXT DEFAULT 'neutral',
   competitor_mentions JSONB DEFAULT '{}',
   source TEXT DEFAULT 'manual',
+  batch_id TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -69,6 +71,10 @@ CREATE TABLE IF NOT EXISTS schedules (
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Eski kurulumlar için (tablo önceden oluşturulduysa sütunu ekler)
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS samples INT DEFAULT 1;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS batch_id TEXT;
 
 -- ---- indexler ----
 CREATE INDEX IF NOT EXISTS idx_runs_prompt_id ON runs(prompt_id);

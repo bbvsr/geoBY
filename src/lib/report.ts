@@ -7,7 +7,7 @@ import {
   domainTypeBreakdown,
   gaps,
   isBrandedPrompt,
-  latestPerPromptModel,
+  latestBatches,
   rankOf,
   sentimentSummary,
   sourceRows,
@@ -97,11 +97,14 @@ export async function buildPromptRows(brand: Brand, days: number, model?: ModelI
   return prompts.map((p) => {
     const pr = byPrompt.get(p.id) ?? [];
     const cells: PromptRow["cells"] = {};
-    for (const r of latestPerPromptModel(pr)) {
-      cells[r.model] = {
+    for (const b of latestBatches(pr)) {
+      const r = b.runs[0];
+      cells[b.model] = {
         runId: r.id,
-        mentioned: r.mentioned,
-        position: r.position_score,
+        mentioned: b.mentioned,
+        samples: b.runs.length,
+        hits: b.hits,
+        position: b.position === null ? null : Math.round(b.position * 10) / 10,
         sentiment: r.sentiment,
         date: r.created_at,
       };

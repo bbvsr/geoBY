@@ -16,7 +16,7 @@ export function Filters() {
   const options = [...new Set([...brand.selected_models, ...(model ? [model] : [])])];
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2 print:hidden">
       <Segmented label="Dönem" value={days} onChange={setDays} options={PERIODS} />
       <label className="sr-only" htmlFor="filter-model">
         Asistan

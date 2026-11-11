@@ -166,29 +166,64 @@ export function byModel(runs: Run[], selected: ModelId[]): ModelSummary[] {
 
 // ---- Fırsatlar: markanın geçmediği, rakiplerin geçtiği sorular ----
 
-/** Her (soru, asistan) ikilisinin en son testi. */
-export function latestPerPromptModel(runs: Run[]): Run[] {
-  const latest = new Map<string, Run>();
+export interface Batch {
+  promptId: string;
+  model: Run["model"];
+  /** En yeni önce */
+  runs: Run[];
+  hits: number;
+  /** Çoğunlukla (yarı veya daha fazla) önerildi mi */
+  mentioned: boolean;
+  /** Önerildiği testlerdeki ortalama sıra */
+  position: number | null;
+}
+
+/** Bir testin deneme grubu: aynı batch_id'yi taşıyan testler; kimliği yoksa yalnızca kendisi. */
+export function sameBatch<T extends Pick<Run, "id" | "batch_id">>(run: T, all: T[]): T[] {
+  return run.batch_id ? all.filter((r) => r.batch_id === run.batch_id) : [run];
+}
+
+/**
+ * Her (soru, asistan) ikilisinin son deneme grubu. Tekrarlı ölçümde (ör. 3 deneme)
+ * tek bir şanslı/şanssız cevap yerine çoğunluk esas alınır.
+ */
+export function latestBatches(runs: Run[]): Batch[] {
+  const groups = new Map<string, Run[]>();
   for (const r of runs) {
     const k = `${r.prompt_id}:${r.model}`;
-    const cur = latest.get(k);
-    if (!cur || r.created_at > cur.created_at) latest.set(k, r);
+    const list = groups.get(k) ?? [];
+    list.push(r);
+    groups.set(k, list);
   }
-  return [...latest.values()];
+  const out: Batch[] = [];
+  for (const list of groups.values()) {
+    list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const batch = sameBatch(list[0], list);
+    const hits = batch.filter((r) => r.mentioned).length;
+    out.push({
+      promptId: list[0].prompt_id,
+      model: list[0].model,
+      runs: batch,
+      hits,
+      mentioned: hits * 2 >= batch.length && hits > 0,
+      position: avgPosition(batch),
+    });
+  }
+  return out;
 }
 
 export function gaps(genericRuns: Run[], prompts: Prompt[], competitors: Competitor[], limit = 6): GapItem[] {
   const byId = new Map(prompts.map((p) => [p.id, p]));
   const items = new Map<string, GapItem>();
-  for (const r of latestPerPromptModel(genericRuns)) {
-    if (r.mentioned) continue;
-    const prompt = byId.get(r.prompt_id);
+  for (const b of latestBatches(genericRuns)) {
+    if (b.mentioned) continue;
+    const prompt = byId.get(b.promptId);
     if (!prompt || !prompt.is_active) continue;
-    const hits = competitors.filter((c) => competitorIn(r, c.name)).map((c) => c.name);
+    const hits = competitors.filter((c) => b.runs.some((r) => competitorIn(r, c.name))).map((c) => c.name);
     if (hits.length === 0) continue;
     const item = items.get(prompt.id) ?? { promptId: prompt.id, text: prompt.text, competitors: [], models: [] };
     for (const h of hits) if (!item.competitors.includes(h)) item.competitors.push(h);
-    if (!item.models.includes(r.model)) item.models.push(r.model);
+    if (!item.models.includes(b.model)) item.models.push(b.model);
     items.set(prompt.id, item);
   }
   // En çok rakibin ve asistanın geçtiği sorular önce

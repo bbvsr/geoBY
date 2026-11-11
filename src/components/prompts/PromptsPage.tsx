@@ -217,10 +217,22 @@ export function PromptsPage() {
 function Cell({ cell }: { cell?: PromptCell }) {
   if (!cell) return <span className="text-ink-4" aria-label="test yok">·</span>;
   const when = `${shortDate(cell.date)} testi`;
+  const ratio = cell.samples > 1 ? `${cell.hits}/${cell.samples}` : null;
   if (!cell.mentioned) {
     return (
-      <span className="text-[13px] text-bad" title={`Geçmiyor · ${when}`}>
-        yok
+      <span className="text-[13px] text-bad tnum" title={`${ratio ? `${cell.samples} denemenin ${cell.hits} tanesinde geçti` : "Geçmiyor"} · ${when}`}>
+        {ratio ?? "yok"}
+      </span>
+    );
+  }
+  if (ratio) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[13px] font-medium text-good tnum"
+        title={`${cell.samples} denemenin ${cell.hits} tanesinde önerildi${cell.position ? `, ortalama ${cell.position}. sırada` : ""} · ${when}`}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-good" aria-hidden />
+        {ratio}
       </span>
     );
   }
@@ -243,6 +255,9 @@ function Legend() {
       </span>
       <span>
         <span className="text-ink-4">·</span> bu dönemde test yok
+      </span>
+      <span>
+        <span className="font-medium text-good">● 2/3</span> tekrarlı testte 3 denemenin 2&apos;sinde önerildi
       </span>
       <span>
         <Tag tone="warn" className="text-[11px]">

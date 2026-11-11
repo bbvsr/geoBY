@@ -88,6 +88,8 @@ export interface Brand {
   category: string | null;
   description: string | null;
   selected_models: ModelId[];
+  /** Otomatik testte her sorunun asistan başına kaç kez sorulacağı (1, 3 veya 5) */
+  samples?: number;
   created_at: string;
 }
 
@@ -121,6 +123,8 @@ export interface Run {
   sentiment: Sentiment;
   competitor_mentions: Record<string, boolean>;
   source: string;
+  /** Aynı otomatik test çalıştırmasındaki tekrarlar aynı kimliği taşır */
+  batch_id?: string | null;
   created_at: string;
 }
 
@@ -253,7 +257,11 @@ export interface OverviewReport {
 /** Soru × model tablosundaki bir hücre: o modeldeki en son test. */
 export interface PromptCell {
   runId: string;
+  /** Son deneme grubunda çoğunlukla önerildi mi */
   mentioned: boolean;
+  /** Son deneme grubundaki test sayısı ve markanın geçtiği test sayısı */
+  samples: number;
+  hits: number;
   position: number | null;
   sentiment: Sentiment;
   date: string;

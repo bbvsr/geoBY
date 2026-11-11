@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { ArrowRight, ClipboardText, Key, Play } from "@phosphor-icons/react";
+import { ArrowRight, ClipboardText, Key, Play, Printer } from "@phosphor-icons/react";
 import { MODEL_LABELS, type OverviewReport } from "@/types";
 import { cn, decimal, pct, pointChange, timeAgo } from "@/lib/utils";
 import { useData } from "@/lib/client";
@@ -30,8 +30,23 @@ export function OverviewPage() {
             <>Yapay zekâ asistanları müşterilerinize {brand.name} markasını öneriyor mu?</>
           )
         }
-        actions={<Filters />}
+        actions={
+          <>
+            <Filters />
+            {report && report.totals.runs > 0 && (
+              <Button size="sm" variant="ghost" icon={<Printer size={16} />} onClick={() => window.print()} className="print:hidden">
+                Yazdır / PDF
+              </Button>
+            )}
+          </>
+        }
       />
+      {report && (
+        <p className="hidden text-[12px] text-ink-3 print:block">
+          GeoBY raporu · {brand.name} ({brand.domain}) · {new Date().toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" })} ·
+          son {periodLabel(report.days)}
+        </p>
+      )}
 
       {error && !report ? (
         <ErrorState message={error} onRetry={reload} />

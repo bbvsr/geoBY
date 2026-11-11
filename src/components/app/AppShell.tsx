@@ -30,7 +30,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         İçeriğe geç
       </a>
 
-      <header className="sticky top-0 z-30 border-b border-line bg-paper/92 backdrop-blur-[6px]">
+      <header className="sticky top-0 z-30 border-b border-line bg-paper/92 backdrop-blur-[6px] print:hidden">
         <div className="mx-auto flex h-16 max-w-[1180px] items-center gap-6 px-5 md:px-8">
           <Link href="/" className="flex items-baseline gap-2.5" aria-label="GeoBY ana sayfa">
             <span className="font-serif text-[22px] leading-none font-semibold tracking-[-0.02em]">GeoBY</span>
@@ -81,9 +81,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
       </header>
 
-      <main id="icerik" className="mx-auto max-w-[1180px] px-5 pt-8 pb-24 md:px-8 md:pt-10">
-        {ai && !canAuto && <AutoOffHint />}
-        {run && <RunStatus />}
+      <main id="icerik" className="mx-auto max-w-[1180px] px-5 pt-8 pb-24 md:px-8 md:pt-10 print:p-0">
+        <div className="print:hidden">
+          {ai && !canAuto && <AutoOffHint />}
+          {run && <RunStatus />}
+        </div>
         {children}
       </main>
 

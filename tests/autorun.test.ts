@@ -67,6 +67,18 @@ describe("düzenli otomatik test", () => {
     const ok = await runDueTests();
     expect(ok).toMatchObject({ ran: true, prompts: 1, answers: 1, mentioned: 1, errors: 0 });
     expect(new Date((await store.getSchedule(brand.id))!.next_due_at!).getTime()).toBeGreaterThan(Date.now() + 6 * 86400000);
+    // Tekrarlı ölçüm: 3 kez sorulur; kota dolarsa ilk hatada durur
+    await store.updateSamples(brand.id, 3);
+    const { autoTestPrompt } = await import("@/lib/testing");
+    const b3 = (await store.getPrimaryBrand())!;
+    const [prompt] = await store.getPrompts(brand.id);
+    expect((await autoTestPrompt(b3, [], prompt, ["openai"])).filter((r) => r.success)).toHaveLength(3);
+    mode = "quota";
+    const calls = (fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    expect(await autoTestPrompt(b3, [], prompt, ["openai"])).toHaveLength(1);
+    expect((fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length - calls).toBe(1);
+    mode = "ok";
+
     const runs = await store.getRuns({ brandId: brand.id });
     expect(runs[0]).toMatchObject({ model: "openai", mentioned: true, position_score: 1, source: "api:Groq · openai/gpt-oss-120b" });
   }, 60_000);

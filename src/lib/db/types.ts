@@ -42,6 +42,7 @@ export interface NewRun {
   sentiment: string;
   competitor_mentions: Record<string, boolean>;
   source: string;
+  batch_id?: string | null;
 }
 
 export type RunAnalysis = Pick<
@@ -80,6 +81,7 @@ export interface DataStore {
   getPrimaryBrand(): Promise<Brand | null>;
   updateBrand(id: string, patch: BrandPatch): Promise<Brand | null>;
   updateSelectedModels(brandId: string, models: ModelId[]): Promise<void>;
+  updateSamples(brandId: string, samples: number): Promise<void>;
   completeOnboarding(payload: CompletePayload): Promise<Brand>;
 
   getCompetitors(brandId: string): Promise<Competitor[]>;

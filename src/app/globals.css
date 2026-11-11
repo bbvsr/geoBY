@@ -126,8 +126,7 @@ dialog.drawer[open] {
 }
 @keyframes drawer-in {
   from {
-    transform: translateX(24px);
-    opacity: 0.4;
+    transform: translateX(32px);
   }
 }
 
@@ -153,4 +152,24 @@ dialog.drawer[open] {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line-strong) transparent;
+}
+
+/* Yazdırma / PDF: kâğıt zemin beyaz, bölümler sayfa ortasında bölünmesin */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+  html,
+  body {
+    background: #fff;
+  }
+  section,
+  dl,
+  table,
+  li {
+    break-inside: avoid;
+  }
+  a {
+    text-decoration: none;
+  }
 }

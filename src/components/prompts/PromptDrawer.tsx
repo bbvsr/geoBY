@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Archive, CaretDown, ClipboardText, PencilSimple, Play, Trash, X } from "@phosphor-icons/react";
+import { sameBatch } from "@/lib/metrics";
 import { MODEL_LABELS, ALL_MODELS, type ModelId, type PromptDetail, type RunDetail } from "@/types";
 import { cn, dateTime, timeAgo } from "@/lib/utils";
 import { api, useData } from "@/lib/client";
@@ -70,6 +71,13 @@ function PromptDetailView({ id }: { id: string }) {
   const latest = new Map<ModelId, RunDetail>();
   for (const r of runs) if (!latest.has(r.model)) latest.set(r.model, r);
   const history = runs.filter((r) => latest.get(r.model)?.id !== r.id);
+  // Son deneme grubu (tekrarlı ölçümde aynı çalıştırmanın tüm denemeleri)
+  const batchOf = (m: ModelId) => {
+    const l = latest.get(m);
+    if (!l) return null;
+    const b = sameBatch(l, runs);
+    return { samples: b.length, hits: b.filter((r) => r.mentioned).length };
+  };
   const rivals = competitors.map((c) => ({ name: c.name, domain: c.domain }));
 
   return (
@@ -169,6 +177,7 @@ function PromptDetailView({ id }: { id: string }) {
               key={m}
               model={m}
               run={latest.get(m)}
+              batch={batchOf(m)}
               brand={brand}
               rivals={rivals}
               onPaste={() => openPaste({ promptId: prompt.id, model: m })}
@@ -243,6 +252,7 @@ function Verdict({ run }: { run: RunDetail }) {
 function ModelResult({
   model,
   run,
+  batch,
   brand,
   rivals,
   onPaste,
@@ -250,6 +260,7 @@ function ModelResult({
 }: {
   model: ModelId;
   run?: RunDetail;
+  batch?: { samples: number; hits: number } | null;
   brand: { name: string; domain: string };
   rivals: { name: string; domain: string }[];
   onPaste: () => void;
@@ -286,6 +297,12 @@ function ModelResult({
               {sourceText(run.source)} · {timeAgo(run.created_at)}
             </span>
           </p>
+          {batch && batch.samples > 1 && (
+            <p className="mt-0.5 text-[14px] font-medium">
+              {batch.samples} denemenin {batch.hits} tanesinde önerildi
+              <span className="font-normal text-ink-3"> · en sonuncusu:</span>
+            </p>
+          )}
           <div className="mt-0.5">
             <Verdict run={run} />
           </div>

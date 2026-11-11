@@ -187,3 +187,43 @@ describe("eşitlikte sıra", () => {
     );
   });
 });
+
+import { latestBatches } from "@/lib/metrics";
+
+describe("tekrarlı ölçüm (deneme grupları)", () => {
+  const at = (r: Run, minutesAgo: number, batch: string | null = null) => ({
+    ...r,
+    batch_id: batch,
+    created_at: new Date(Date.now() - minutesAgo * 60000).toISOString(),
+  });
+
+  it("aynı çalıştırmanın denemelerini tek grup sayar ve çoğunluğa bakar", () => {
+    const runs = [
+      at(run(true, {}, { pos: 1 }), 1, "b2"),
+      at(run(false, {}), 2, "b2"),
+      at(run(true, {}, { pos: 3 }), 3, "b2"),
+      at(run(false, {}), 5, "b1"), // birkaç dakika önceki ayrı çalıştırma gruba girmez
+    ];
+    const [b] = latestBatches(runs);
+    expect(b.runs).toHaveLength(3);
+    expect(b.hits).toBe(2);
+    expect(b.mentioned).toBe(true);
+    expect(b.position).toBe(2);
+  });
+
+  it("kimliği olmayan (elle yapıştırılan, eski) testler tek başına sayılır", () => {
+    const [b] = latestBatches([at(run(false, {}), 1), at(run(true, {}), 2)]);
+    expect(b.runs).toHaveLength(1);
+    expect(b.mentioned).toBe(false);
+  });
+
+  it("azınlıkta önerildiyse fırsat listesine girer", () => {
+    const prompts = [{ id: "p1", text: "en iyi kırtasiye", is_active: true } as Prompt];
+    const runs = [
+      at(run(true, { "Ofis Market": true }, { prompt: "p1" }), 1, "x"),
+      at(run(false, { "Ofis Market": true }, { prompt: "p1" }), 2, "x"),
+      at(run(false, { "Ofis Market": false }, { prompt: "p1" }), 3, "x"),
+    ];
+    expect(gaps(runs, prompts, comps).map((g) => g.promptId)).toEqual(["p1"]);
+  });
+});

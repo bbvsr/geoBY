@@ -144,6 +144,8 @@ interface CompatOptions {
   maxTokens: number;
   /** Yalnızca yardımcı işlerde ve destekleyen sağlayıcılarda gönderilir. */
   assistantTemperature?: number;
+  /** İstek gövdesine eklenecek sağlayıcıya özgü alanlar */
+  extraBody?: () => Record<string, unknown>;
   timeoutMs: number;
 }
 
@@ -159,7 +161,7 @@ async function chatCompat(o: CompatOptions, req: ChatRequest): Promise<ChatResul
   if (req.system) messages.push({ role: "system", content: req.system });
   messages.push({ role: "user", content: req.prompt });
 
-  const body: Record<string, unknown> = { model: o.model, messages, [o.tokenParam]: o.maxTokens };
+  const body: Record<string, unknown> = { model: o.model, messages, [o.tokenParam]: o.maxTokens, ...o.extraBody?.() };
   // Test cevaplarında sıcaklığı sağlayıcının varsayılanında bırakırız: gerçek kullanıcının gördüğüne en yakın olan budur.
   if (req.purpose === "assistant" && o.assistantTemperature !== undefined) body.temperature = o.assistantTemperature;
   if (req.json && o.jsonMode) body.response_format = { type: "json_object" };
@@ -390,6 +392,9 @@ function callProvider(id: ProviderId, model: string, req: ChatRequest): Promise<
           url: "https://text.pollinations.ai/openai",
           model,
           jsonMode: false,
+          // Pollinations aynı istek gövdesini saatlerce önbellekten cevaplıyor (x-cache: HIT).
+          // Rastgele seed olmadan her test eski cevabın aynısını kaydederdi.
+          extraBody: () => ({ seed: Math.floor(Math.random() * 2_000_000_000) }),
           tokenParam: "max_tokens",
           maxTokens: 2000,
           timeoutMs: 90000,

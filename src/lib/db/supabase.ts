@@ -99,6 +99,16 @@ export function createSupabaseStore(url: string, secretKey: string): DataStore {
       check(await client.from("brands").update({ selected_models: models }).eq("id", brandId), "brands");
     },
 
+    async updateSamples(brandId, samples) {
+      const res = await client.from("brands").update({ samples }).eq("id", brandId);
+      if (res.error && /samples/.test(res.error.message)) {
+        throw new Error(
+          "Veritabanınızda bu ayar için sütun yok. Supabase SQL Editor'de şunu çalıştırın: ALTER TABLE brands ADD COLUMN IF NOT EXISTS samples INT DEFAULT 1;"
+        );
+      }
+      check(res, "brands");
+    },
+
     async completeOnboarding(p) {
       const brand = check(
         await client
@@ -204,7 +214,13 @@ export function createSupabaseStore(url: string, secretKey: string): DataStore {
     },
 
     async createRun(run) {
-      const res = await client.from("runs").insert(run).select().single();
+      let res = await client.from("runs").insert(run).select().single();
+      // Eski şemada batch_id sütunu yoksa onsuz kaydet (tekrar grupları tek tek sayılır)
+      if (res.error && /batch_id/.test(res.error.message)) {
+        const { batch_id: _omit, ...rest } = run;
+        void _omit;
+        res = await client.from("runs").insert(rest).select().single();
+      }
       return check(res, "runs") as Run;
     },
 

@@ -298,7 +298,58 @@ function Assistants() {
         )}
       </div>
 
+      <SamplesSetting />
+
       <KeyHelp />
+    </div>
+  );
+}
+
+function SamplesSetting() {
+  const { brand, reloadBrand, refresh, autoModels } = useApp();
+  const value = brand.samples ?? 1;
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(n: number) {
+    setSaving(true);
+    setError(null);
+    try {
+      await api("/api/models", { method: "PUT", body: { samples: n } });
+      await reloadBrand();
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-line pt-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-[15px]">Her soru asistan başına kaç kez sorulsun?</span>
+        <Segmented
+          label="Tekrar sayısı"
+          value={value}
+          onChange={(n) => !saving && save(n)}
+          options={[
+            { value: 1, label: "1 kez" },
+            { value: 3, label: "3 kez" },
+            { value: 5, label: "5 kez" },
+          ]}
+        />
+      </div>
+      <p className="mt-2 max-w-[64ch] text-[14px] text-ink-3">
+        Asistanlar aynı soruya her seferinde biraz farklı cevap verir. Birden çok kez sormak tek bir şanslı ya da şanssız
+        cevabın sonucu yanıltmasını önler: tabloda “3 denemenin 2’sinde önerildi” gibi görürsünüz. Ücretsiz kotayı o kadar
+        hızlı tüketir{autoModels.length ? "" : " (yalnızca otomatik testte geçerlidir)"}.
+      </p>
+      {error && (
+        <p className="mt-2 text-[13px] text-bad" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

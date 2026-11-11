@@ -69,6 +69,14 @@ Ollama veya LM Studio'da modeli açıp `LOCAL_AI_URL=http://localhost:11434/v1` 
 
 > 7B boyutundaki modeller kurulum önerilerinde marka adı uydurabilir. Önerilen rakipleri her zaman kontrol edin.
 
+## Tekrarlı ölçüm
+
+Asistanlar aynı soruya her seferinde biraz farklı cevap verir. Bu yüzden tek bir test şanslı ya da şanssız çıkabilir. Ayarlar → Asistanlar bölümünden her sorunun asistan başına **3 veya 5 kez** sorulmasını seçebilirsiniz. Tabloda sonuç "3 denemenin 2'sinde önerildi" (**2/3**) biçiminde görünür. Bir sorunun önerildi sayılması için denemelerin en az yarısında önerilmesi gerekir. Seçim, kotayı o oranda hızlı tüketir.
+
+## Rapor
+
+Özet sayfasındaki **Yazdır / PDF** düğmesi, menü ve düğmeler olmadan, tarihli bir rapor çıkarır. Tarayıcının yazdırma penceresinde "PDF olarak kaydet"i seçin.
+
 ## Düzenli test
 
 Ayarlar → **Düzenli test** açıkken (haftalık veya aylık), zamanı gelen testler otomatik bağlantısı olan asistanlarda **kendiliğinden** çalışır. Uygulama yarım saatte bir kontrol eder. Bunun için uygulamanın çalışıyor olması gerekir (`npm run dev` veya `npm start`). Kapatmak için `GEOBY_AUTORUN=false` yazın. Elle ölçülen asistanlar için Özet sayfasında "test zamanı" uyarısı görünür.

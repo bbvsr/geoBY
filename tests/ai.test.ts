@@ -184,6 +184,15 @@ describe("anahtarsız deneme modu (Pollinations)", () => {
     expect(res.fidelity).toBe("rough");
   });
 
+  it("önbelleğe takılmamak için her istekte farklı seed gönderir", async () => {
+    const f = mockFetch({ [POLLINATIONS]: [chatOk("a", "gpt-oss-20b")] });
+    await runModel("openai", "soru");
+    await runModel("openai", "soru");
+    const seeds = f.calls.map((c) => c.body?.seed);
+    expect(seeds.every((x) => typeof x === "number")).toBe(true);
+    expect(seeds[0]).not.toBe(seeds[1]);
+  });
+
   it("Groq başarısız olursa yedek olarak devreye girer", async () => {
     vi.stubEnv("GROQ_API_KEY", "bad");
     mockFetch({

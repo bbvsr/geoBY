@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type { Brand, Competitor, ModelId, ParsedResponse, Prompt, Run } from "@/types";
 import { db } from "@/lib/db";
 import { parseResponse } from "@/lib/parser";
@@ -13,6 +14,7 @@ export async function saveTestResult(args: {
   response: string;
   extraCitations?: string[];
   source: string;
+  batchId?: string;
 }): Promise<{ run: Run; parsed: ParsedResponse }> {
   const parsed = parseResponse({
     response: args.response,
@@ -34,6 +36,7 @@ export async function saveTestResult(args: {
     sentiment: parsed.sentiment,
     competitor_mentions: parsed.competitorMentions,
     source: args.source,
+    batch_id: args.batchId ?? null,
   });
   await store.createCitations(
     run.id,
@@ -51,36 +54,45 @@ export interface AutoRunResult {
   error?: string;
 }
 
-/** Soruyu seçili modellere sırayla sorar (hız sınırlarına takılmamak için paralel değil). */
+/** Markanın tekrar ayarı (1, 3 veya 5). */
+export function samplesOf(brand: Brand): number {
+  return [1, 3, 5].includes(brand.samples ?? 1) ? (brand.samples ?? 1) : 1;
+}
+
+/**
+ * Soruyu seçili asistanlara sırayla sorar (hız sınırlarına takılmamak için paralel değil).
+ * Tekrar ayarı 3 ise her asistana 3 kez sorulur; bir denemede hata alınırsa o asistanın
+ * kalan denemeleri atlanır (kota dolmuşsa boşuna istek atılmaz).
+ */
 export async function autoTestPrompt(
   brand: Brand,
   competitors: Competitor[],
   prompt: Prompt,
-  models: ModelId[]
+  models: ModelId[],
+  samples = samplesOf(brand)
 ): Promise<AutoRunResult[]> {
   const results: AutoRunResult[] = [];
   for (const model of models) {
-    try {
-      const res = await runModel(model, prompt.text);
-      const { parsed } = await saveTestResult({
-        brand,
-        competitors,
-        prompt,
-        model,
-        queryText: prompt.text,
-        response: res.text,
-        extraCitations: res.citations,
-        source: `api:${res.via}`,
-      });
-      results.push({
-        model,
-        success: true,
-        engine: res.via,
-        mentioned: parsed.mentioned,
-        position: parsed.positionScore,
-      });
-    } catch (e) {
-      results.push({ model, success: false, error: (e as Error).message });
+    const batchId = randomUUID();
+    for (let i = 0; i < samples; i++) {
+      try {
+        const res = await runModel(model, prompt.text);
+        const { parsed } = await saveTestResult({
+          brand,
+          competitors,
+          prompt,
+          model,
+          queryText: prompt.text,
+          response: res.text,
+          extraCitations: res.citations,
+          source: `api:${res.via}`,
+          batchId,
+        });
+        results.push({ model, success: true, engine: res.via, mentioned: parsed.mentioned, position: parsed.positionScore });
+      } catch (e) {
+        results.push({ model, success: false, error: (e as Error).message });
+        break;
+      }
     }
   }
   return results;
