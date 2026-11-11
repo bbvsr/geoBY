@@ -142,7 +142,7 @@ export function PromptsPage() {
                     </th>
                   ))}
                   <th className="w-[84px] px-2 py-2 text-right font-normal">Son test</th>
-                  <th className="w-[76px] py-2" aria-label="İşlemler" />
+                  <th className="w-[76px] py-2 font-normal"><span className="sr-only">İşlemler</span></th>
                 </tr>
               </thead>
               <tbody>

@@ -44,7 +44,8 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <main className="mx-auto max-w-[400px] px-5 pt-24">
-      <p className="font-serif text-[26px] font-semibold tracking-[-0.02em]">GeoBY</p>
+      <p className="font-serif text-[22px] font-semibold tracking-[-0.02em]">GeoBY</p>
+      <h1 className="mt-8 font-serif text-[30px] leading-tight font-medium">Giriş</h1>
       <p className="mt-2 text-[15px] text-ink-2">Bu kurulum parola ile korunuyor.</p>
       <Suspense>
         <LoginForm />

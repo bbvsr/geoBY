@@ -111,7 +111,7 @@ export function SourcesPage() {
                 <tbody>
                   {rows.map((s, i) => (
                     <tr key={s.key} className="border-b border-line">
-                      <td className="py-2.5 text-[13px] text-ink-4 tnum">{i + 1}</td>
+                      <td className="py-2.5 text-[13px] text-ink-3 tnum">{i + 1}</td>
                       <td className="max-w-[360px] py-2.5 pr-3">
                         <a
                           href={view === "domains" ? `https://${s.key}` : s.key}

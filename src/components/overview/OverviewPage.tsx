@@ -213,7 +213,7 @@ function Report({ report }: { report: OverviewReport }) {
             <ol className="space-y-4">
               {report.actions.map((a, i) => (
                 <li key={a.title} className="grid grid-cols-[24px_1fr] gap-x-2">
-                  <span className="font-serif text-[17px] leading-6 text-ink-4 tnum">{i + 1}.</span>
+                  <span className="font-serif text-[17px] leading-6 text-ink-3 tnum">{i + 1}.</span>
                   <div>
                     <p className="flex flex-wrap items-center gap-x-2 text-[15px] font-medium text-ink">
                       {a.title}
@@ -392,7 +392,7 @@ function SourcesBrief({ report }: { report: OverviewReport }) {
       <ol className="divide-y divide-line border-y border-line text-[14px]">
         {report.sources.map((s, i) => (
           <li key={s.key} className="flex items-center gap-3 py-2">
-            <span className="w-5 text-right text-[13px] text-ink-4 tnum">{i + 1}</span>
+            <span className="w-5 text-right text-[13px] text-ink-3 tnum">{i + 1}</span>
             <span className="min-w-0 flex-1 truncate">{s.key}</span>
             <span className="hidden text-[13px] text-ink-3 sm:inline">{DOMAIN_TYPE_LABEL[s.domainType]}</span>
             <span className="w-11 text-right tnum">{pct(s.share)}</span>
