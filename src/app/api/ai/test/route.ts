@@ -3,7 +3,7 @@ import { HttpError, isModelId, readJson, route } from "@/lib/http";
 import { runModel } from "@/lib/ai/engines";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /** Bir model bağlantısını kısa bir soruyla dener (kayıt oluşturmaz). */
 export const POST = route(async (req) => {
@@ -14,7 +14,8 @@ export const POST = route(async (req) => {
     const res = await runModel(model, "Bağlantı testi: yalnızca 'Tamam' yaz.");
     return NextResponse.json({
       ok: true,
-      engine: res.engine.label,
+      via: res.via,
+      fidelity: res.fidelity,
       ms: Date.now() - started,
       sample: res.text.slice(0, 120),
     });

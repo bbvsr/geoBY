@@ -1,10 +1,13 @@
-import { chat, defaultModel, isProviderConfigured, PROVIDERS, type ProviderId } from "./providers";
+import { chat, isProviderConfigured, PROVIDERS, type ProviderId } from "./providers";
 
 /**
- * Yardımcı yapay zeka: kurulumda site analizi, soru ve rakip önerisi gibi
- * işler için. Ücretsiz sağlayıcıları sırayla dener.
+ * Yardımcı yapay zeka: kurulumda site analizi, soru/rakip önerisi ve
+ * sonuçların yorumlanması için.
+ *
+ * Anahtarsız Pollinations burada bilerek yok: sunduğu küçük model var olmayan
+ * marka adları uydurabiliyor. Yardımcı yoksa kural tabanlı yönteme düşülür.
  */
-const ASSISTANT_ORDER: ProviderId[] = ["gemini", "groq", "openrouter", "openai", "anthropic", "pollinations"];
+const ASSISTANT_ORDER: ProviderId[] = ["groq", "gemini", "local", "openai", "anthropic"];
 
 export function assistantProvider(): ProviderId | null {
   return ASSISTANT_ORDER.find(isProviderConfigured) ?? null;
@@ -32,6 +35,7 @@ export function extractJSON(text: string): unknown {
 
 export interface AssistantResult<T> {
   data: T;
+  /** Kullanıcıya gösterilen ad, ör. "Groq" */
   provider: string;
 }
 
@@ -43,15 +47,9 @@ export async function askJSON<T>(system: string, prompt: string): Promise<Assist
   for (const id of ASSISTANT_ORDER) {
     if (!isProviderConfigured(id)) continue;
     try {
-      const res = await chat(id, defaultModel(id, "assistant"), {
-        system,
-        prompt,
-        json: true,
-        maxTokens: 3000,
-        timeoutMs: 45000,
-      });
+      const res = await chat(id, { system, prompt, json: true, purpose: "assistant" });
       const parsed = extractJSON(res.text);
-      if (parsed && typeof parsed === "object") {
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         return { data: parsed as T, provider: PROVIDERS[id].label };
       }
     } catch (e) {

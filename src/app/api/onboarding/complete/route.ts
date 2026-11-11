@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { HttpError, isModelId, readJson, route, str } from "@/lib/http";
-import { ALL_MODELS } from "@/types";
+import { STANDARD_MODELS } from "@/types";
 import { extractDomain } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +44,7 @@ export const POST = route(async (req) => {
     domain,
     category: str(body.category, 80),
     description: str(body.description, 400),
-    selectedModels: models.length ? models : [...ALL_MODELS],
+    selectedModels: models.length ? models : [...STANDARD_MODELS],
     prompts,
     competitors,
   });

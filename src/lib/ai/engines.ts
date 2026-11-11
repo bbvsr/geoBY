@@ -1,47 +1,64 @@
-import { MODEL_LABELS, type ModelId } from "@/types";
+import { ALL_MODELS, MODEL_LABELS, type ModelId } from "@/types";
+import { ProviderError } from "./http";
 import {
   PROVIDERS,
-  ProviderError,
   chat,
-  defaultModel,
   isProviderConfigured,
+  knownModelFor,
   type ChatResult,
   type ProviderId,
 } from "./providers";
 
 /**
- * Hangi izlenen model (ChatGPT, Gemini, ...) hangi sağlayıcı üzerinden
- * otomatik test edilebilir? Liste öncelik sırasıdır; ilk çalışan kullanılır.
+ * Hangi izlenen asistan hangi sağlayıcı üzerinden otomatik test edilebilir?
+ * Liste öncelik sırasıdır; ilk çalışan kullanılır.
  *
- * Not: Claude, Perplexity ve AI Overview'un ücretsiz API'si yoktur.
- * Anahtar yoksa bu modeller "Manuel Test" ile ölçülür.
+ * Claude, Perplexity ve AI Overview'un ücretsiz API'si yoktur; anahtar yoksa
+ * bu asistanlar cevap yapıştırılarak ölçülür.
  */
 const ENGINE_CHAIN: Record<ModelId, ProviderId[]> = {
-  openai: ["openai", "groq", "openrouter", "pollinations"],
+  openai: ["openai", "groq", "pollinations"],
   gemini: ["gemini"],
   claude: ["anthropic"],
   perplexity: ["perplexity"],
   google_aio: [],
+  local: ["local"],
+};
+
+/** Ölçümün asıl ürünü ne kadar temsil ettiği. */
+export type Fidelity = "exact" | "close" | "rough";
+
+function fidelityOf(model: ModelId, provider: ProviderId): Fidelity {
+  if (model !== "openai") return "exact";
+  if (provider === "openai") return "exact";
+  return provider === "groq" ? "close" : "rough";
+}
+
+const FIDELITY_NOTE: Record<Fidelity, string> = {
+  exact: "",
+  close: "OpenAI'nin açık modeli. ChatGPT'ye yakın sonuç verir, aynısı değildir.",
+  rough: "Anahtarsız deneme modu: küçük bir açık model, soru başına yaklaşık 45 sn. Sonuçlar kabadır.",
 };
 
 export interface Engine {
   provider: ProviderId;
-  model: string;
-  /** Kullanıcıya gösterilen ad, örn. "Groq · openai/gpt-oss-120b" */
-  label: string;
+  providerLabel: string;
+  /** Biliniyorsa model adı (ilk çağrıdan önce bilinmeyebilir). */
+  model: string | null;
   free: boolean;
-  /** Gerçek ürünün kendisi mi, yoksa yakın bir vekil mi? */
-  exact: boolean;
+  fidelity: Fidelity;
+  note: string;
 }
 
 function toEngine(model: ModelId, provider: ProviderId): Engine {
-  const m = defaultModel(provider, "test");
+  const fidelity = fidelityOf(model, provider);
   return {
     provider,
-    model: m,
-    label: `${PROVIDERS[provider].label} · ${m}`,
+    providerLabel: PROVIDERS[provider].label,
+    model: knownModelFor(provider),
     free: PROVIDERS[provider].free,
-    exact: !(model === "openai" && provider !== "openai"),
+    fidelity,
+    note: FIDELITY_NOTE[fidelity],
   };
 }
 
@@ -54,57 +71,53 @@ export function canAutoTest(model: ModelId): boolean {
 }
 
 export interface ModelRunResult extends ChatResult {
-  engine: Engine;
+  /** Kayıtlarda gösterilen kaynak, ör. "Groq · openai/gpt-oss-120b" */
+  via: string;
+  fidelity: Fidelity;
 }
 
 /**
- * Bir soruyu izlenen modele sorar. Sağlayıcılardan biri hata verirse
- * sıradakine geçer; hepsi başarısızsa son hatayı fırlatır.
+ * Bir soruyu izlenen asistana sorar. Sağlayıcılardan biri hata verirse
+ * sıradakine geçer; hepsi başarısızsa nedenleriyle birlikte hata fırlatır.
  */
 export async function runModel(model: ModelId, prompt: string): Promise<ModelRunResult> {
   const engines = enginesFor(model);
   if (engines.length === 0) {
     throw new ProviderError(
-      `${MODEL_LABELS[model]} için otomatik bağlantı yok. Bu modeli Manuel Test ile ölçün.`
+      `${MODEL_LABELS[model]} için otomatik bağlantı yok. Cevabı yapıştırarak ölçebilirsiniz.`,
+      "config"
     );
   }
   const errors: string[] = [];
   for (const engine of engines) {
     try {
-      const res = await chat(engine.provider, engine.model, {
-        prompt,
-        // Gemini cevabını Google aramasıyla destekle: gerçek kaynaklar gelir
-        webSearch: engine.provider === "gemini",
-        maxTokens: engine.provider === "gemini" ? 8192 : 2000,
-      });
-      return { ...res, engine };
+      const res = await chat(engine.provider, { prompt, purpose: "test" });
+      return { ...res, via: `${engine.providerLabel} · ${res.model}`, fidelity: engine.fidelity };
     } catch (e) {
-      errors.push(`${engine.label}: ${(e as Error).message}`);
+      errors.push(`${engine.providerLabel}: ${(e as Error).message}`);
     }
   }
-  const onlyKeyless = engines.every((e) => e.provider === "pollinations");
-  throw new ProviderError(
-    errors.join(" | ") +
-      (onlyKeyless ? " — Daha güvenilir sonuç için Ayarlar'dan ücretsiz bir Groq veya Gemini anahtarı ekleyin." : "")
-  );
+  throw new ProviderError(errors.join(" · "), "other");
 }
 
 export interface ModelStatus {
   model: ModelId;
   auto: boolean;
   engine: Engine | null;
-  /** Bu model için hangi anahtar(lar) otomatik testi açar */
-  unlockWith: ProviderId[];
+  /** Bu asistan için otomatik testi açan ortam değişkenleri (öncelik sırasıyla). */
+  unlockWith: string[];
 }
 
 export function modelStatuses(): ModelStatus[] {
-  return (Object.keys(ENGINE_CHAIN) as ModelId[]).map((model) => {
+  return ALL_MODELS.map((model) => {
     const engines = enginesFor(model);
     return {
       model,
       auto: engines.length > 0,
       engine: engines[0] ?? null,
-      unlockWith: ENGINE_CHAIN[model],
+      unlockWith: ENGINE_CHAIN[model]
+        .filter((p) => p !== "pollinations")
+        .map((p) => PROVIDERS[p].envKey),
     };
   });
 }

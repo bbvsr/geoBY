@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
   ALL_MODELS,
+  STANDARD_MODELS,
   MODEL_COLORS,
   MODEL_LABELS,
   type CrawlResult,
@@ -40,7 +41,7 @@ export function OnboardingFlow() {
   const [crawl, setCrawl] = useState<CrawlResult | null>(null);
   const [prompts, setPrompts] = useState<PromptDraft[]>([]);
   const [competitors, setCompetitors] = useState<CompetitorDraft[]>([]);
-  const [models, setModels] = useState<ModelId[]>([...ALL_MODELS]);
+  const [models, setModels] = useState<ModelId[]>([...STANDARD_MODELS]);
   const [brandName, setBrandName] = useState("");
   const [category, setCategory] = useState("");
   const [launching, setLaunching] = useState(false);

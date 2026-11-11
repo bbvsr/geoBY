@@ -241,7 +241,7 @@ export function Dashboard({
                 return (
                   <span
                     key={m}
-                    title={st?.auto ? `Otomatik · ${st.engine?.label}` : "Manuel test"}
+                    title={st?.auto ? `Otomatik · ${st.engine?.providerLabel}` : "Manuel test"}
                     className={cn(
                       "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-opacity",
                       model !== "all" && model !== m && "opacity-30"

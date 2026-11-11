@@ -4,15 +4,20 @@ export type ModelId =
   | "claude"
   | "gemini"
   | "perplexity"
-  | "google_aio";
+  | "google_aio"
+  | "local";
 
-export const ALL_MODELS: ModelId[] = [
+/** Herkesin kullandığı beş asistan — yeni markada varsayılan olarak izlenir. */
+export const STANDARD_MODELS: ModelId[] = [
   "openai",
-  "claude",
   "gemini",
+  "claude",
   "perplexity",
   "google_aio",
 ];
+
+/** Standart asistanlar + kullanıcının kendi bilgisayarındaki model (ayarlıysa). */
+export const ALL_MODELS: ModelId[] = [...STANDARD_MODELS, "local"];
 
 export const MODEL_LABELS: Record<ModelId, string> = {
   openai: "ChatGPT",
@@ -20,6 +25,7 @@ export const MODEL_LABELS: Record<ModelId, string> = {
   gemini: "Gemini",
   perplexity: "Perplexity",
   google_aio: "AI Overview",
+  local: "Yerel model",
 };
 
 export const MODEL_SHORT: Record<ModelId, string> = {
@@ -28,6 +34,7 @@ export const MODEL_SHORT: Record<ModelId, string> = {
   gemini: "GM",
   perplexity: "PX",
   google_aio: "AIO",
+  local: "YRL",
 };
 
 export const MODEL_COLORS: Record<ModelId, string> = {
@@ -36,6 +43,7 @@ export const MODEL_COLORS: Record<ModelId, string> = {
   gemini: "#4285f4",
   perplexity: "#20b2aa",
   google_aio: "#ea4335",
+  local: "#6b7280",
 };
 
 export type Sentiment = "positive" | "neutral" | "negative";
@@ -256,10 +264,21 @@ export interface ParsedResponse {
 }
 
 // ---- Yapay zeka bağlantı durumu (/api/ai/status) ----
+export interface AiEngine {
+  provider: string;
+  providerLabel: string;
+  model: string | null;
+  free: boolean;
+  /** exact: ürünün kendi modeli · close: yakın açık model · rough: kaba deneme */
+  fidelity: "exact" | "close" | "rough";
+  note: string;
+}
+
 export interface AiModelStatus {
   model: ModelId;
   auto: boolean;
-  engine: { label: string; free: boolean; exact: boolean } | null;
+  engine: AiEngine | null;
+  /** Otomatik testi açan ortam değişkenleri */
   unlockWith: string[];
 }
 
@@ -267,8 +286,9 @@ export interface AiProviderStatus {
   id: string;
   label: string;
   free: boolean;
-  envKey: string | null;
-  signupUrl: string;
+  envKey: string;
+  envExample: string;
+  signupUrl: string | null;
   note: string;
   configured: boolean;
 }
@@ -276,6 +296,7 @@ export interface AiProviderStatus {
 export interface AiStatus {
   models: AiModelStatus[];
   providers: AiProviderStatus[];
+  /** Site analizi ve önerileri yapan sağlayıcı (yoksa kural tabanlı) */
   assistant: string | null;
   storage: "supabase" | "local";
 }

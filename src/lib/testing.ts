@@ -70,12 +70,12 @@ export async function autoTestPrompt(
         queryText: prompt.text,
         response: res.text,
         extraCitations: res.citations,
-        source: `api:${res.engine.label}`,
+        source: `api:${res.via}`,
       });
       results.push({
         model,
         success: true,
-        engine: res.engine.label,
+        engine: res.via,
         mentioned: parsed.mentioned,
         position: parsed.positionScore,
       });

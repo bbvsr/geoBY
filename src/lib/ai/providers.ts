@@ -1,4 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { ProviderError, requestJSON } from "./http";
+import { candidateModels, demoteModel, knownModel, type DiscoverableProvider } from "./models";
 
 /**
  * Yapay zeka sağlayıcıları. Hepsi sunucu tarafında çağrılır; anahtarlar
@@ -7,7 +9,7 @@ import Anthropic from "@anthropic-ai/sdk";
 export type ProviderId =
   | "gemini"
   | "groq"
-  | "openrouter"
+  | "local"
   | "pollinations"
   | "openai"
   | "anthropic"
@@ -17,9 +19,11 @@ export interface ProviderInfo {
   id: ProviderId;
   label: string;
   free: boolean;
-  /** Anahtarın okunduğu ortam değişkeni (anahtarsız sağlayıcıda yok). */
-  envKey?: string;
-  signupUrl: string;
+  /** Ayarın okunduğu ortam değişkeni. */
+  envKey: string;
+  /** .env.local dosyasına yazılacak örnek değer. */
+  envExample: string;
+  signupUrl?: string;
   note: string;
 }
 
@@ -29,68 +33,79 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
     label: "Google Gemini",
     free: true,
     envKey: "GEMINI_API_KEY",
+    envExample: "anahtarınız",
     signupUrl: "https://aistudio.google.com/apikey",
-    note: "Ücretsiz anahtar. Gemini ölçümü + Google arama kaynakları + kurulum analizi.",
+    note: "Gemini'yi ölçer. Ücretsiz katmanın günlük istek sınırı vardır.",
   },
   groq: {
     id: "groq",
     label: "Groq",
     free: true,
     envKey: "GROQ_API_KEY",
+    envExample: "anahtarınız",
     signupUrl: "https://console.groq.com/keys",
-    note: "Ücretsiz anahtar, çok hızlı. ChatGPT ölçümü OpenAI'nin açık modeli gpt-oss ile yapılır.",
+    note: "ChatGPT'yi, OpenAI'nin açık modeli gpt-oss ile yaklaşık ölçer. Kurulumdaki site analizini de yapar.",
   },
-  openrouter: {
-    id: "openrouter",
-    label: "OpenRouter",
+  local: {
+    id: "local",
+    label: "Yerel model",
     free: true,
-    envKey: "OPENROUTER_API_KEY",
-    signupUrl: "https://openrouter.ai/keys",
-    note: "Ücretsiz (:free) modeller. Groq'a alternatif.",
+    envKey: "LOCAL_AI_URL",
+    envExample: "http://localhost:11434/v1",
+    note: "Bilgisayarınızdaki model (Ollama, LM Studio, llama.cpp). Anahtar ve sınır yok; site analizi ve önerilerde kullanılır.",
   },
   pollinations: {
     id: "pollinations",
     label: "Pollinations",
     free: true,
+    envKey: "POLLINATIONS_ENABLED",
+    envExample: "true",
     signupUrl: "https://pollinations.ai",
-    note: "Anahtar gerektirmez; yavaş ve hız sınırlı. Hiç anahtar yoksa son çare olarak kullanılır.",
+    note: "Anahtarsız deneme modu: küçük bir açık modelle, 45 saniyede bir cevap. Sonuçlar yaklaşıktır.",
   },
   openai: {
     id: "openai",
     label: "OpenAI",
     free: false,
     envKey: "OPENAI_API_KEY",
+    envExample: "anahtarınız",
     signupUrl: "https://platform.openai.com/api-keys",
-    note: "Ücretli. Gerçek ChatGPT modeliyle ölçüm.",
+    note: "ChatGPT'yi OpenAI'nin kendi modeliyle ölçer.",
   },
   anthropic: {
     id: "anthropic",
-    label: "Anthropic (Claude)",
+    label: "Anthropic",
     free: false,
     envKey: "ANTHROPIC_API_KEY",
+    envExample: "anahtarınız",
     signupUrl: "https://console.anthropic.com/settings/keys",
-    note: "Ücretli. Claude ölçümü için gerekli; yoksa Claude manuel test edilir.",
+    note: "Claude'u ölçer.",
   },
   perplexity: {
     id: "perplexity",
     label: "Perplexity",
     free: false,
     envKey: "PERPLEXITY_API_KEY",
+    envExample: "anahtarınız",
     signupUrl: "https://www.perplexity.ai/settings/api",
-    note: "Ücretli. Perplexity ölçümü + gerçek kaynak listesi; yoksa manuel test edilir.",
+    note: "Perplexity'yi kaynak listesiyle birlikte ölçer.",
   },
 };
 
-export function providerKey(id: ProviderId): string | undefined {
-  const env = PROVIDERS[id].envKey;
-  if (!env) return undefined;
-  const v = process.env[env]?.trim();
-  return v ? v : undefined;
+const env = (name: string): string | undefined => process.env[name]?.trim() || undefined;
+
+/** LOCAL_AI_URL'i OpenAI uyumlu taban adrese çevirir (…/v1). */
+export function localBaseUrl(): string | undefined {
+  const raw = env("LOCAL_AI_URL");
+  if (!raw) return undefined;
+  const url = raw.replace(/\/+$/, "");
+  return /\/v\d+$/.test(url) ? url : `${url}/v1`;
 }
 
 export function isProviderConfigured(id: ProviderId): boolean {
-  if (id === "pollinations") return process.env.POLLINATIONS_ENABLED !== "false";
-  return !!providerKey(id);
+  if (id === "pollinations") return env("POLLINATIONS_ENABLED") !== "false";
+  if (id === "local") return !!localBaseUrl();
+  return !!env(PROVIDERS[id].envKey);
 }
 
 // ---------------------------------------------------------------------------
@@ -98,11 +113,10 @@ export function isProviderConfigured(id: ProviderId): boolean {
 export interface ChatRequest {
   prompt: string;
   system?: string;
+  /** "test": son kullanıcının göreceği cevaba en yakın ayarlar. "assistant": yapılandırılmış yardımcı işler. */
+  purpose: "test" | "assistant";
   /** Cevabın JSON olması istendiğinde true. */
   json?: boolean;
-  /** Gemini için Google arama ile kaynaklandırma. */
-  webSearch?: boolean;
-  maxTokens?: number;
   timeoutMs?: number;
 }
 
@@ -110,117 +124,76 @@ export interface ChatResult {
   text: string;
   /** Sağlayıcının döndürdüğü kaynak URL'leri (Perplexity, Gemini arama). */
   citations: string[];
+  /** Cevabı gerçekten veren model. */
+  model: string;
 }
 
-export class ProviderError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number
-  ) {
-    super(message);
-    this.name = "ProviderError";
-  }
+/** Bazı açık modeller düşünme sürecini cevabın içine yazar; onu ayıklar. */
+export function stripReasoning(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^[\s\S]*?<\/think>/i, "").trim();
 }
 
-function describeStatus(status: number, body: string): string {
-  let detail = "";
-  try {
-    const j = JSON.parse(body);
-    detail = j?.error?.message ?? j?.message ?? j?.error ?? "";
-    if (typeof detail !== "string") detail = JSON.stringify(detail);
-  } catch {
-    detail = body.slice(0, 200);
-  }
-  const hint =
-    status === 401 || status === 403
-      ? "API anahtarı geçersiz veya yetkisiz"
-      : status === 429
-        ? "Hız/kota sınırı aşıldı, biraz sonra tekrar deneyin"
-        : status >= 500
-          ? "Sağlayıcı geçici olarak yanıt vermiyor"
-          : "İstek reddedildi";
-  return `${hint} (HTTP ${status})${detail ? `: ${detail}` : ""}`;
-}
+// ---- OpenAI uyumlu sağlayıcılar (Groq, Pollinations, yerel, OpenAI, Perplexity) ----
 
-async function postJSON(
-  url: string,
-  headers: Record<string, string>,
-  body: unknown,
-  timeoutMs: number
-): Promise<unknown> {
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (e) {
-    const err = e as Error;
-    if (err.name === "TimeoutError" || err.name === "AbortError") {
-      throw new ProviderError(`Zaman aşımı (${Math.round(timeoutMs / 1000)} sn)`);
-    }
-    throw new ProviderError(`Bağlantı kurulamadı: ${err.message}`);
-  }
-  const text = await res.text();
-  if (!res.ok) throw new ProviderError(describeStatus(res.status, text), res.status);
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new ProviderError("Sağlayıcıdan geçersiz cevap geldi");
-  }
-}
-
-// ---- OpenAI uyumlu sağlayıcılar (Groq, OpenRouter, Pollinations, OpenAI, Perplexity) ----
-
-interface OpenAICompatOptions {
+interface CompatOptions {
   url: string;
   apiKey?: string;
   model: string;
-  /** response_format: json_object destekleniyorsa true */
-  supportsJsonMode: boolean;
-  extraHeaders?: Record<string, string>;
+  jsonMode: boolean;
+  tokenParam: "max_tokens" | "max_completion_tokens";
+  maxTokens: number;
+  /** Yalnızca yardımcı işlerde ve destekleyen sağlayıcılarda gönderilir. */
+  assistantTemperature?: number;
+  timeoutMs: number;
 }
 
-interface OpenAICompatResponse {
-  choices?: { message?: { content?: string | null } }[];
+interface CompatResponse {
+  model?: string;
+  choices?: { message?: { content?: string | null }; finish_reason?: string }[];
   citations?: string[];
   search_results?: { url?: string }[];
 }
 
-async function chatOpenAICompatible(o: OpenAICompatOptions, req: ChatRequest): Promise<ChatResult> {
+async function chatCompat(o: CompatOptions, req: ChatRequest): Promise<ChatResult> {
   const messages: { role: string; content: string }[] = [];
   if (req.system) messages.push({ role: "system", content: req.system });
   messages.push({ role: "user", content: req.prompt });
 
-  const body: Record<string, unknown> = {
-    model: o.model,
-    messages,
-    max_tokens: req.maxTokens ?? 2000,
-    temperature: 0.3,
-  };
-  if (req.json && o.supportsJsonMode) body.response_format = { type: "json_object" };
+  const body: Record<string, unknown> = { model: o.model, messages, [o.tokenParam]: o.maxTokens };
+  // Test cevaplarında sıcaklığı sağlayıcının varsayılanında bırakırız: gerçek kullanıcının gördüğüne en yakın olan budur.
+  if (req.purpose === "assistant" && o.assistantTemperature !== undefined) body.temperature = o.assistantTemperature;
+  if (req.json && o.jsonMode) body.response_format = { type: "json_object" };
 
-  const headers: Record<string, string> = { ...o.extraHeaders };
-  if (o.apiKey) headers.Authorization = `Bearer ${o.apiKey}`;
+  const data = await requestJSON<CompatResponse>({
+    url: o.url,
+    headers: o.apiKey ? { Authorization: `Bearer ${o.apiKey}` } : {},
+    body,
+    timeoutMs: req.timeoutMs ?? o.timeoutMs,
+  });
 
-  const data = (await postJSON(o.url, headers, body, req.timeoutMs ?? 60000)) as OpenAICompatResponse;
-  const text = data.choices?.[0]?.message?.content?.trim() ?? "";
-  if (!text) throw new ProviderError("Model boş cevap döndürdü");
+  const choice = data.choices?.[0];
+  const text = stripReasoning(choice?.message?.content ?? "");
+  if (!text) {
+    throw new ProviderError(
+      choice?.finish_reason === "length"
+        ? "Model cevabı tamamlayamadan uzunluk sınırına ulaştı"
+        : "Model boş cevap döndürdü",
+      "response"
+    );
+  }
 
   const citations = [
     ...(Array.isArray(data.citations) ? data.citations : []),
-    ...(Array.isArray(data.search_results)
-      ? data.search_results.map((s) => s.url ?? "").filter(Boolean)
-      : []),
-  ];
-  return { text, citations: [...new Set(citations)] };
+    ...(Array.isArray(data.search_results) ? data.search_results.map((s) => s?.url ?? "") : []),
+  ].filter((u): u is string => typeof u === "string" && u.length > 0);
+
+  return { text, citations: [...new Set(citations)], model: data.model || o.model };
 }
 
 // ---- Gemini ----
 
 interface GeminiResponse {
+  modelVersion?: string;
   candidates?: {
     content?: { parts?: { text?: string; thought?: boolean }[] };
     groundingMetadata?: { groundingChunks?: { web?: { uri?: string; title?: string } }[] };
@@ -229,12 +202,13 @@ interface GeminiResponse {
   promptFeedback?: { blockReason?: string };
 }
 
+// Google aramasıyla destekleme her katmanda açık değildir. Reddedilirse bir süre denemeyiz
+// (her test için boşa bir istek harcamamak adına).
+const gs = globalThis as unknown as { __geobySearchOffUntil?: number };
+
 async function chatGemini(apiKey: string, model: string, req: ChatRequest): Promise<ChatResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-  const generationConfig: Record<string, unknown> = {
-    temperature: 0.3,
-    maxOutputTokens: req.maxTokens ?? 4096,
-  };
+  const generationConfig: Record<string, unknown> = { maxOutputTokens: 8192 };
   if (req.json) generationConfig.responseMimeType = "application/json";
 
   const body: Record<string, unknown> = {
@@ -244,29 +218,33 @@ async function chatGemini(apiKey: string, model: string, req: ChatRequest): Prom
   if (req.system) body.systemInstruction = { parts: [{ text: req.system }] };
 
   const send = (withSearch: boolean) =>
-    postJSON(
+    requestJSON<GeminiResponse>({
       url,
-      { "x-goog-api-key": apiKey },
-      withSearch ? { ...body, tools: [{ google_search: {} }] } : body,
-      req.timeoutMs ?? 60000
-    ) as Promise<GeminiResponse>;
+      headers: { "x-goog-api-key": apiKey },
+      body: withSearch ? { ...body, tools: [{ google_search: {} }] } : body,
+      timeoutMs: req.timeoutMs ?? 90000,
+      // Aramalı deneme başarısız olursa beklemeden aramasız deneriz
+      retries: withSearch ? 0 : 2,
+    });
 
+  const wantSearch = req.purpose === "test" && !req.json && (gs.__geobySearchOffUntil ?? 0) < Date.now();
   let data: GeminiResponse;
-  if (req.webSearch && !req.json) {
+  if (wantSearch) {
     try {
       data = await send(true);
     } catch (e) {
-      // Arama aracı kotası/izni yoksa aramasız tekrar dene
-      if (e instanceof ProviderError && e.status && e.status < 500 && e.status !== 401) {
-        data = await send(false);
-      } else throw e;
+      const err = e as ProviderError;
+      // Anahtar/model sorunu aramayla ilgili değildir; olduğu gibi bildir
+      if (err.kind === "auth" || err.kind === "model" || err.kind === "network" || err.kind === "timeout") throw e;
+      data = await send(false);
+      gs.__geobySearchOffUntil = Date.now() + 30 * 60 * 1000;
     }
   } else {
     data = await send(false);
   }
 
   if (data.promptFeedback?.blockReason) {
-    throw new ProviderError(`Gemini isteği engelledi: ${data.promptFeedback.blockReason}`);
+    throw new ProviderError(`Gemini bu soruyu yanıtlamadı (${data.promptFeedback.blockReason})`, "response");
   }
   const cand = data.candidates?.[0];
   const text = (cand?.content?.parts ?? [])
@@ -274,118 +252,221 @@ async function chatGemini(apiKey: string, model: string, req: ChatRequest): Prom
     .map((p) => p.text ?? "")
     .join("")
     .trim();
-  if (!text) throw new ProviderError(`Gemini boş cevap döndürdü${cand?.finishReason ? ` (${cand.finishReason})` : ""}`);
+  if (!text) {
+    throw new ProviderError(
+      `Gemini boş cevap döndürdü${cand?.finishReason ? ` (${cand.finishReason})` : ""}`,
+      "response"
+    );
+  }
 
-  // Arama kaynakları: uri bir yönlendirme linki, title ise asıl domain (örn. "trendyol.com")
+  // Arama kaynakları: uri bir yönlendirme bağlantısıdır, title ise asıl alan adı (ör. "trendyol.com")
   const citations: string[] = [];
   for (const ch of cand?.groundingMetadata?.groundingChunks ?? []) {
     const title = ch.web?.title?.trim() ?? "";
     if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(title)) citations.push(`https://${title.toLowerCase()}`);
     else if (ch.web?.uri && !ch.web.uri.includes("grounding-api-redirect")) citations.push(ch.web.uri);
   }
-  return { text, citations: [...new Set(citations)] };
+  return { text, citations: [...new Set(citations)], model: data.modelVersion || model };
 }
 
 // ---- Anthropic (Claude) ----
 
 async function chatAnthropic(apiKey: string, model: string, req: ChatRequest): Promise<ChatResult> {
-  const client = new Anthropic({ apiKey, timeout: req.timeoutMs ?? 90000, maxRetries: 1 });
+  const client = new Anthropic({ apiKey, timeout: req.timeoutMs ?? 120000, maxRetries: 1 });
   try {
     const response = await client.messages.create({
       model,
-      max_tokens: req.maxTokens ?? 4000,
+      max_tokens: 8000,
       ...(req.system ? { system: req.system } : {}),
       messages: [{ role: "user", content: req.prompt }],
     });
     if (response.stop_reason === "refusal") {
-      throw new ProviderError("Claude bu soruyu yanıtlamayı reddetti");
+      throw new ProviderError("Claude bu soruyu yanıtlamayı reddetti", "response");
     }
     const text = response.content
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("")
       .trim();
-    if (!text) throw new ProviderError("Claude boş cevap döndürdü");
-    return { text, citations: [] };
+    if (!text) throw new ProviderError("Claude boş cevap döndürdü", "response");
+    return { text, citations: [], model: response.model || model };
   } catch (e) {
     if (e instanceof ProviderError) throw e;
-    if (e instanceof Anthropic.AuthenticationError) throw new ProviderError("Anthropic API anahtarı geçersiz", 401);
-    if (e instanceof Anthropic.RateLimitError) throw new ProviderError("Anthropic hız sınırı aşıldı", 429);
-    if (e instanceof Anthropic.APIError) throw new ProviderError(`Anthropic hatası: ${e.message}`, e.status);
-    throw new ProviderError(`Anthropic'e bağlanılamadı: ${(e as Error).message}`);
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
+      throw new ProviderError("Anthropic API anahtarı geçersiz veya yetkisiz", "auth", e.status);
+    }
+    if (e instanceof Anthropic.NotFoundError) {
+      throw new ProviderError(`Claude modeli bulunamadı (${model}). ANTHROPIC_MODEL değerini kontrol edin.`, "model", 404);
+    }
+    if (e instanceof Anthropic.RateLimitError) {
+      throw new ProviderError("Anthropic hız sınırı aşıldı, biraz sonra tekrar deneyin", "rate", 429);
+    }
+    if (e instanceof Anthropic.APIConnectionError) {
+      throw new ProviderError("Anthropic'e bağlanılamadı", "network");
+    }
+    if (e instanceof Anthropic.APIError) {
+      throw new ProviderError(`Anthropic hatası (HTTP ${e.status ?? "?"}): ${e.message.slice(0, 200)}`, "other", e.status);
+    }
+    throw new ProviderError(`Anthropic'e bağlanılamadı: ${(e as Error).message}`, "network");
   }
 }
 
 // ---------------------------------------------------------------------------
 
-/** Varsayılan model adları; ortam değişkeniyle değiştirilebilir. */
-export function defaultModel(id: ProviderId, purpose: "test" | "assistant" = "test"): string {
-  const env = (name: string, fallback: string) => process.env[name]?.trim() || fallback;
-  switch (id) {
-    case "gemini":
-      return env("GEMINI_MODEL", "gemini-2.5-flash");
-    case "groq":
-      return purpose === "assistant"
-        ? env("GROQ_ASSISTANT_MODEL", "llama-3.3-70b-versatile")
-        : env("GROQ_MODEL", "openai/gpt-oss-120b");
-    case "openrouter":
-      return env("OPENROUTER_MODEL", "openai/gpt-oss-20b:free");
-    case "pollinations":
-      return env("POLLINATIONS_MODEL", "openai");
-    case "openai":
-      return env("OPENAI_MODEL", "gpt-4o-mini");
-    case "anthropic":
-      return env("ANTHROPIC_MODEL", "claude-opus-5-5");
-    case "perplexity":
-      return env("PERPLEXITY_MODEL", "sonar");
-  }
+const DISCOVERABLE: Partial<Record<ProviderId, DiscoverableProvider>> = {
+  gemini: "gemini",
+  groq: "groq",
+  openai: "openai",
+  local: "local",
+};
+
+const MODEL_ENV: Record<ProviderId, string> = {
+  gemini: "GEMINI_MODEL",
+  groq: "GROQ_MODEL",
+  local: "LOCAL_AI_MODEL",
+  pollinations: "POLLINATIONS_MODEL",
+  openai: "OPENAI_MODEL",
+  anthropic: "ANTHROPIC_MODEL",
+  perplexity: "PERPLEXITY_MODEL",
+};
+
+const FIXED_DEFAULT: Partial<Record<ProviderId, string>> = {
+  pollinations: "openai",
+  anthropic: "claude-opus-5-5",
+  perplexity: "sonar",
+};
+
+function apiKeyFor(id: ProviderId): string | undefined {
+  if (id === "local") return env("LOCAL_AI_KEY");
+  if (id === "pollinations") return undefined;
+  return env(PROVIDERS[id].envKey);
 }
 
-/** Tek bir sağlayıcıyı çağırır. */
-export async function chat(id: ProviderId, model: string, req: ChatRequest): Promise<ChatResult> {
-  const key = providerKey(id);
-  if (!isProviderConfigured(id)) {
-    throw new ProviderError(`${PROVIDERS[id].label} ayarlı değil (${PROVIDERS[id].envKey} eksik)`);
-  }
+async function modelsFor(id: ProviderId, purpose: "test" | "assistant"): Promise<string[]> {
+  const override = env(MODEL_ENV[id]);
+  const disc = DISCOVERABLE[id];
+  if (!disc) return [override ?? FIXED_DEFAULT[id]!];
+  const list = await candidateModels(disc, purpose, {
+    apiKey: apiKeyFor(id),
+    baseUrl: id === "local" ? localBaseUrl() : undefined,
+    override,
+  });
+  // Yerel sunucu model listesini vermiyorsa (llama.cpp tek model sunar) genel bir adla dene
+  return list.length === 0 && id === "local" ? ["default"] : list;
+}
+
+/** Durum ekranı için: ağ çağrısı yapmadan bilinen model adı. */
+export function knownModelFor(id: ProviderId): string | null {
+  const override = env(MODEL_ENV[id]);
+  if (override) return override;
+  const disc = DISCOVERABLE[id];
+  if (!disc) return FIXED_DEFAULT[id] ?? null;
+  return knownModel(disc, "test", id === "local" ? localBaseUrl() : undefined);
+}
+
+function callProvider(id: ProviderId, model: string, req: ChatRequest): Promise<ChatResult> {
+  const key = apiKeyFor(id);
   switch (id) {
     case "gemini":
       return chatGemini(key!, model, req);
     case "anthropic":
       return chatAnthropic(key!, model, req);
     case "groq":
-      return chatOpenAICompatible(
-        { url: "https://api.groq.com/openai/v1/chat/completions", apiKey: key, model, supportsJsonMode: true },
-        req
-      );
-    case "openrouter":
-      return chatOpenAICompatible(
+      return chatCompat(
         {
-          url: "https://openrouter.ai/api/v1/chat/completions",
+          url: "https://api.groq.com/openai/v1/chat/completions",
           apiKey: key,
           model,
-          supportsJsonMode: false,
-          extraHeaders: { "X-Title": "GeoBY" },
+          jsonMode: true,
+          tokenParam: "max_completion_tokens",
+          maxTokens: 4096,
+          assistantTemperature: 0.2,
+          timeoutMs: 60000,
         },
         req
       );
     case "pollinations":
-      return chatOpenAICompatible(
+      return chatCompat(
         {
           url: "https://text.pollinations.ai/openai",
-          apiKey: process.env.POLLINATIONS_TOKEN?.trim() || undefined,
           model,
-          supportsJsonMode: false,
+          jsonMode: false,
+          tokenParam: "max_tokens",
+          maxTokens: 2000,
+          timeoutMs: 90000,
         },
-        { ...req, timeoutMs: req.timeoutMs ?? 90000 }
+        req
+      );
+    case "local":
+      return chatCompat(
+        {
+          url: `${localBaseUrl()}/chat/completions`,
+          apiKey: key,
+          model,
+          jsonMode: false,
+          tokenParam: "max_tokens",
+          maxTokens: 2000,
+          assistantTemperature: 0.2,
+          // Yerel modeller, özellikle işlemcide, yavaş olabilir
+          timeoutMs: 300000,
+        },
+        req
       );
     case "openai":
-      return chatOpenAICompatible(
-        { url: "https://api.openai.com/v1/chat/completions", apiKey: key, model, supportsJsonMode: true },
+      return chatCompat(
+        {
+          url: "https://api.openai.com/v1/chat/completions",
+          apiKey: key,
+          model,
+          jsonMode: true,
+          tokenParam: "max_completion_tokens",
+          maxTokens: 4096,
+          timeoutMs: 90000,
+        },
         req
       );
     case "perplexity":
-      return chatOpenAICompatible(
-        { url: "https://api.perplexity.ai/chat/completions", apiKey: key, model, supportsJsonMode: false },
+      return chatCompat(
+        {
+          url: "https://api.perplexity.ai/chat/completions",
+          apiKey: key,
+          model,
+          jsonMode: false,
+          tokenParam: "max_tokens",
+          maxTokens: 2000,
+          timeoutMs: 90000,
+        },
         req
       );
   }
+}
+
+/**
+ * Bir sağlayıcıyı çağırır. Seçilen model kaldırılmışsa veya bu anahtarla
+ * kullanılamıyorsa sıradaki uygun modele geçer.
+ */
+export async function chat(id: ProviderId, req: ChatRequest): Promise<ChatResult> {
+  const info = PROVIDERS[id];
+  if (!isProviderConfigured(id)) {
+    throw new ProviderError(`${info.label} ayarlı değil (${info.envKey} eksik)`, "config");
+  }
+  const candidates = await modelsFor(id, req.purpose);
+  if (candidates.length === 0) {
+    throw new ProviderError(`${info.label} üzerinde bu iş için uygun model bulunamadı`, "model");
+  }
+
+  let last: unknown;
+  for (const model of candidates.slice(0, 3)) {
+    try {
+      return await callProvider(id, model, req);
+    } catch (e) {
+      last = e;
+      if (e instanceof ProviderError && e.kind === "model") {
+        const disc = DISCOVERABLE[id];
+        if (disc) demoteModel(disc, req.purpose, model, id === "local" ? localBaseUrl() : undefined);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw last;
 }

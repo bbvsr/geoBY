@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import {
-  ALL_MODELS,
+  STANDARD_MODELS,
   type Brand,
   type BrandDocument,
   type Citation,
@@ -130,7 +130,7 @@ export function createLocalStore(dataDir: string): DataStore {
           is_primary: true,
           category: p.category,
           description: p.description,
-          selected_models: p.selectedModels.length ? p.selectedModels : [...ALL_MODELS],
+          selected_models: p.selectedModels.length ? p.selectedModels : [...STANDARD_MODELS],
           created_at: now(),
         };
         d.brands.push(brand);

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import {
   ALL_MODELS,
+  STANDARD_MODELS,
   MODEL_COLORS,
   MODEL_LABELS,
   type AiStatus,
@@ -129,12 +130,9 @@ function AiConnections({ ai }: { ai: AiStatus | null }) {
               )}
               <span className="min-w-0 flex-1 text-muted-foreground">
                 {m.auto && m.engine
-                  ? `${m.engine.label}${m.engine.exact ? "" : " (ChatGPT'ye yakın açık model)"}`
+                  ? `${m.engine.providerLabel}${m.engine.model ? ` · ${m.engine.model}` : ""}${m.engine.note ? ` — ${m.engine.note}` : ""}`
                   : m.unlockWith.length
-                    ? `Açmak için: ${m.unlockWith
-                        .map((id) => ai.providers.find((p) => p.id === id)?.envKey)
-                        .filter(Boolean)
-                        .join(" veya ")}`
+                    ? `Açmak için: ${m.unlockWith.join(" veya ")}`
                     : "Ücretsiz API yok — Manuel Test ile ölçülür"}
               </span>
               {t?.msg && (
@@ -183,7 +181,7 @@ function ProviderList({ title, providers }: { title: string; providers: AiStatus
                 </span>
               ) : (
                 <a
-                  href={p.signupUrl}
+                  href={p.signupUrl ?? undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 text-[10px] text-primary hover:underline"
@@ -372,7 +370,7 @@ function ModelSelection({
   ai: AiStatus | null;
   onChange: () => void | Promise<void>;
 }) {
-  const [models, setModels] = useState<ModelId[]>(brand.selected_models ?? [...ALL_MODELS]);
+  const [models, setModels] = useState<ModelId[]>(brand.selected_models ?? [...STANDARD_MODELS]);
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState("");
 
