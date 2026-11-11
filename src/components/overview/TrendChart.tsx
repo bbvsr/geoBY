@@ -5,7 +5,7 @@ import { shortDate } from "@/lib/utils";
 
 // Rakipler: birbirinden ayırt edilebilen ama sakin tonlar; marka tek vurgu rengiyle
 const RIVAL_COLORS = ["#5b6b7a", "#8a7d5c", "#6d8a6a", "#8c6b7d", "#4f7a86", "#a08a6e"];
-const ACCENT = "#b5481d";
+const ACCENT = "#a6421b";
 
 interface Series {
   name: string;
@@ -53,7 +53,7 @@ export function TrendChart({ data, series }: { data: TrendPoint[]; series: Serie
             <XAxis
               dataKey="week"
               tickFormatter={(w: string) => shortDate(w)}
-              tick={{ fill: "#77736a", fontSize: 12 }}
+              tick={{ fill: "#69655c", fontSize: 12 }}
               tickLine={false}
               axisLine={{ stroke: "#cfc8b9" }}
               minTickGap={24}
@@ -62,7 +62,7 @@ export function TrendChart({ data, series }: { data: TrendPoint[]; series: Serie
               domain={[0, 100]}
               ticks={[0, 25, 50, 75, 100]}
               tickFormatter={(v: number) => `%${v}`}
-              tick={{ fill: "#77736a", fontSize: 12 }}
+              tick={{ fill: "#69655c", fontSize: 12 }}
               tickLine={false}
               axisLine={false}
               width={48}

@@ -367,7 +367,7 @@ function ModelTable({ report }: { report: OverviewReport }) {
           <tr key={m.model}>
             <td className="py-2.5">{MODEL_LABELS[m.model]}</td>
             <td className="py-2.5 text-right tnum">
-              {m.visibility === null ? <span className="text-ink-4">test yok</span> : pct(m.visibility)}
+              {m.visibility === null ? <span className="text-ink-3">test yok</span> : pct(m.visibility)}
             </td>
             <td className="py-2.5 text-right text-ink-3 tnum">{m.runs}</td>
           </tr>

@@ -24,7 +24,7 @@ export const DOMAIN_TYPE_HINT: Record<DomainType, string> = {
 
 /** Kaynak türlerinin çubuk/etiket rengi — sakin, birbirinden ayırt edilebilir tonlar. */
 export const DOMAIN_TYPE_COLOR: Record<DomainType, string> = {
-  You: "#b5481d",
+  You: "#a6421b",
   Competitor: "#7c5c4a",
   UGC: "#4f7a86",
   Editorial: "#6d8a6a",

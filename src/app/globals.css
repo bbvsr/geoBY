@@ -15,18 +15,18 @@
 
   --color-ink: #1d1c19;
   --color-ink-2: #4a4740;
-  --color-ink-3: #77736a;
-  --color-ink-4: #a29d92;
+  --color-ink-3: #69655c;
+  --color-ink-4: #8c877c;
 
   /* Tek vurgu: "siz" — grafiklerde marka, seçili durumlar */
-  --color-accent: #b5481d;
+  --color-accent: #a6421b;
   --color-accent-soft: #f4e3d7;
 
   --color-good: #2d6a46;
   --color-good-soft: #e1ede3;
   --color-bad: #a8322a;
   --color-bad-soft: #f5e1de;
-  --color-warn: #8a6212;
+  --color-warn: #7d5810;
   --color-warn-soft: #f3ead2;
 
   /* Cevaplarda marka adının üzerine sürülen işaretleyici */

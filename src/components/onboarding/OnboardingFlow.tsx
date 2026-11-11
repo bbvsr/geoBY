@@ -121,7 +121,7 @@ export function OnboardingFlow() {
               ["analyzing", "2. Analiz"],
               ["review", "3. Kontrol"],
             ].map(([key, label]) => (
-              <li key={key} className={cn(step === key ? "font-medium text-ink" : "text-ink-4")} aria-current={step === key ? "step" : undefined}>
+              <li key={key} className={cn(step === key ? "font-medium text-ink" : "text-ink-3")} aria-current={step === key ? "step" : undefined}>
                 {label}
               </li>
             ))}

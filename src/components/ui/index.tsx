@@ -92,7 +92,7 @@ export function IconButton({
 // ---------------------------------------------------------------------------
 
 const FIELD =
-  "w-full rounded-md border border-line-strong bg-surface text-ink placeholder:text-ink-4 transition-colors hover:border-ink-4 focus:border-ink focus:outline-none focus-visible:outline-none aria-[invalid=true]:border-bad disabled:bg-sunken disabled:text-ink-3";
+  "w-full rounded-md border border-line-strong bg-surface text-ink placeholder:text-ink-3 transition-colors hover:border-ink-4 focus:border-ink focus:outline-none focus-visible:outline-none aria-[invalid=true]:border-bad disabled:bg-sunken disabled:text-ink-3";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
   { className, ...props },
