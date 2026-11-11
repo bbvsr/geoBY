@@ -1,73 +1,109 @@
 # GeoBY
 
-**Yapay zeka görünürlük takibi (GEO).** ChatGPT, Gemini, Claude, Perplexity ve Google AI Overview müşterilerinize sizi öneriyor mu? GeoBY, müşterilerinizin soracağı soruları bu asistanlara sorar ve cevaplarda markanızın **geçip geçmediğini, kaçıncı sırada, hangi tonla ve hangi kaynaklarla** önerildiğini ölçer; rakiplerle karşılaştırır ve ne yapmanız gerektiğini söyler.
+Müşteriler artık "en iyi online kırtasiye sitesi hangisi?" sorusunu Google yerine ChatGPT, Gemini, Claude ve Perplexity'ye soruyor. **GeoBY bu soruları düzenli olarak asistanlara sorar ve cevaplarda markanızın önerilip önerilmediğini ölçer.** Buna GEO (Generative Engine Optimization) deniyor.
 
-## 1 dakikada çalıştır
+Her cevap için şunları gösterir:
+
+- Markanız geçiyor mu? Geçiyorsa kaçıncı sırada ve hangi tonla?
+- Hangi rakipleriniz önerilmiş?
+- Asistan hangi sitelere dayanmış?
+
+Bunlardan da somut bir yapılacaklar listesi çıkarır.
+
+## Kimin için, ne işe yarar?
+
+| Senaryo | GeoBY'de |
+|---|---|
+| "Asistanlar bizi öneriyor mu?" | **Özet** sayfası, durumu tek cümleyle verir: "KalemKutu, genel soruların %33 kadarında öneriliyor; 4 marka arasında 2. sırada." |
+| "Rakibimiz nerede, biz neden yokuz?" | **Adınızın geçmediği sorular**: rakiplerin önerildiği ama sizin önerilmediğiniz sorular. En hızlı kazanım buradadır. |
+| "Ne yapmalıyız?" | **Yapılacaklar**: verilere göre öncelikli adımlar. Örneğin bir karşılaştırma sayfası açmak ya da şu sitelerde listelenmek. |
+| "Asistan neye dayanarak öneriyor?" | **Kaynaklar**: cevaplarda gösterilen siteler, türlerine göre (haber, forum, rakip sitesi…). |
+| "Çalışmalarımız işe yaradı mı?" | Haftalık trend grafiği ve önceki döneme göre değişim. Hatırlatıcı, testleri düzenli tekrarlatır. |
+| "Asistan tam olarak ne dedi?" | Soruya tıklayınca her asistanın cevabı açılır. Markanız fosforlu kalemle, rakipler altı çizili gösterilir. |
+| Ajans veya rapor | Tüm testler CSV olarak indirilir (Excel ile açılır). |
+
+**Ölçüm kuralı:** Görünürlük, sorusunda markanızın adı **geçmeyen** genel sorulardan hesaplanır. "KalemKutu alternatifleri" gibi bir soruda adınızın cevapta geçmesi doğaldır; bu sorular görünürlüğe sayılmaz, yalnızca tonu ölçmek için kullanılır.
+
+## Çalıştırma
 
 ```bash
 npm install
 npm run dev
 ```
 
-`http://localhost:3000` → web sitenizi girin → soruları ve rakipleri onaylayın → **Tüm Soruları Test Et**.
+`http://localhost:3000` adresini açın, web sitenizi girin, önerilen soruları ve rakipleri kontrol edin. Hiçbir ayar gerekmez:
 
-Hiçbir ayar gerekmez: veriler `.data/geoby.json` dosyasında saklanır, ölçümler **Manuel Test** ile (soruyu asistana sorup cevabı yapıştırarak) yapılabilir.
+- **Veriler** proje klasöründeki `.data/geoby.json` dosyasında saklanır.
+- **Cevaplar**, sağ üstteki "Cevap yapıştır" ile elle eklenebilir. Soruyu asistana siz sorarsınız; GeoBY cevabı analiz eder.
+- **Anahtarsız deneme modu**: ChatGPT sorusunu Pollinations üzerinden küçük bir açık modelle sorar. Yaklaşık 45 saniyede bir cevap verir ve sonuçları kabadır.
 
-## Otomatik test için ücretsiz yapay zeka anahtarları (önerilen)
+## Otomatik test için ücretsiz anahtarlar
+
+`.env.example` dosyasını `.env.local` olarak kopyalayın, anahtarı ekleyin ve uygulamayı yeniden başlatın.
+
+| Değişken | Nereden | Ne açar |
+|---|---|---|
+| `GROQ_API_KEY` | https://console.groq.com/keys | ChatGPT'yi, OpenAI'nin açık modeli **gpt-oss** ile *yaklaşık* ölçer; kurulumdaki site analizini de yapar |
+| `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Gemini'yi ölçer (ücretsiz katmanın günlük sınırı var) |
+| `LOCAL_AI_URL` | Ollama, LM Studio veya llama.cpp | Kendi bilgisayarınızdaki model; sınırsız ve ücretsiz |
+
+Ücretli ve isteğe bağlı olanlar: `OPENAI_API_KEY` (gerçek ChatGPT modeli), `ANTHROPIC_API_KEY` (Claude), `PERPLEXITY_API_KEY` (Perplexity, kaynak listesiyle birlikte).
+
+Model adlarını yazmanıza gerek yok. GeoBY sağlayıcının güncel model listesinden uygun olanı seçer; bir model kaldırılırsa sıradakine geçer. Hız sınırına takılınca sağlayıcının bildirdiği süre kadar bekleyip yeniden dener.
+
+### Kendi bilgisayarınızdaki modeli kullanmak
+
+Elinizde bir GGUF dosyası varsa (ör. `qwen2.5-coder-7b-instruct-q8_0.gguf`):
 
 ```bash
-cp .env.example .env.local
+# llama.cpp
+llama-server -m ~/ai-models/qwen2.5-coder-7b-instruct-q8_0.gguf --port 8080
+# .env.local
+LOCAL_AI_URL=http://localhost:8080/v1
 ```
 
-| Anahtar | Nereden (ücretsiz) | Ne açar |
-|---|---|---|
-| `GEMINI_API_KEY` | https://aistudio.google.com/apikey | Gemini ölçümü + Google arama kaynakları + kurulumda site analizi |
-| `GROQ_API_KEY` | https://console.groq.com/keys | ChatGPT ölçümü (OpenAI'nin açık modeli `gpt-oss-120b`) |
-| `OPENROUTER_API_KEY` | https://openrouter.ai/keys | Groq'a alternatif (`:free` modeller) |
-| — | Pollinations (anahtarsız) | Hiç anahtar yoksa son çare; yavaş ve hız sınırlı |
+Ollama veya LM Studio'da modeli açıp `LOCAL_AI_URL=http://localhost:11434/v1` (Ollama) ya da `http://localhost:1234/v1` (LM Studio) yazmanız yeterli. Yerel model iki yerde kullanılır:
 
-Anahtarı ekledikten sonra `npm run dev`'i yeniden başlatın. **Ayarlar → Yapay Zeka Bağlantıları** ekranında hangi modelin otomatik/manuel olduğunu görüp "Test et" ile bağlantıyı deneyebilirsiniz.
+- **Site analizi ve öneriler:** Groq ya da Gemini anahtarı yoksa bu işi yerel model yapar.
+- **Ayrı bir asistan olarak:** Ayarlar'da "Yerel model" adıyla ölçülebilir.
 
-Ücretli (isteğe bağlı): `OPENAI_API_KEY` (gerçek ChatGPT), `ANTHROPIC_API_KEY` (Claude), `PERPLEXITY_API_KEY` (Perplexity). Bunlar yoksa o modeller Manuel Test ile ölçülür. Google AI Overview'un ücretsiz API'si olmadığı için her zaman manueldir.
+> 7B boyutundaki modeller kurulum önerilerinde marka adı uydurabilir. Önerilen rakipleri her zaman kontrol edin.
 
-> **Dürüstlük notu:** OpenAI anahtarı yokken "ChatGPT" sonucu, OpenAI'nin açık modeli gpt-oss ile alınır — gerçek ChatGPT'ye yakın ama aynısı değildir. Arayüzde bu her zaman belirtilir.
+## Bilinen sınırlar (dürüstçe)
 
-## Ne ölçülür?
+- **ChatGPT ölçümü:** OpenAI anahtarı yoksa ChatGPT, OpenAI'nin açık modeliyle ölçülür. Gerçek ChatGPT'ye *yakındır* ama aynısı değildir; arayüz bunu her zaman belirtir.
+- **Google AI Overview:** Herkese açık bir API'si yok, her zaman elle ölçülür.
+- **Claude ve Perplexity:** Ücretsiz API'leri yok. Anahtar yoksa cevapları elle yapıştırılır.
+- **Kaynaklar:** Kaynak bağlantıları çoğunlukla Gemini (Google aramasıyla) ve Perplexity testlerinden gelir. Elle yapıştırırken "Kaynak bağlantıları" alanını doldurun.
+- **Ton analizi:** Kelime tabanlıdır. Yön göstericidir, kesin bir değerlendirme değildir.
+- **Kullanıcı yapısı:** Tek marka, tek kullanıcı vardır; ekip ve rol yönetimi yoktur.
 
-- **Görünürlük** — cevapların yüzde kaçında markanız geçiyor
-- **Sıra** — numaralı listede kaçıncı madde; liste yoksa cevapta geçen markalar arasındaki sırası (1 = en iyi)
-- **Ton** — markanın geçtiği cümlelerdeki olumlu/olumsuz ifadeler (0–100)
-- **SOV** — tüm marka geçişleri içindeki payınız
-- **Kaynaklar** — cevapta/aramada gösterilen siteler; Siz / Rakip / Kullanıcı içeriği / Editoryal / Referans / Kurumsal
-- **Aksiyonlar** — verilere göre site içi ve site dışı somut öneriler
+## Sunucuya kurulum
 
-Cevap analizi yapay zeka kullanmaz (hızlı, tutarlı, ücretsiz). Yapay zeka; soruları asistanlara sormak ve kurulumda siteyi analiz edip soru/rakip önermek için kullanılır.
-
-## Supabase ile kullanım (sunucu / ekip)
-
-`.env.local` içine `SUPABASE_URL` ve `SUPABASE_SECRET_KEY` girin. Tablolar yoksa uygulama `/setup` sayfasına yönlendirir; [`sql/schema.sql`](sql/schema.sql) dosyasını Supabase SQL Editor'de çalıştırın. Vercel gibi dosya sistemi kalıcı olmayan ortamlarda Supabase gereklidir.
+- **Veritabanı:** `.env.local` dosyasına `SUPABASE_URL` ve `SUPABASE_SECRET_KEY` değerlerini girin. Tablolar yoksa uygulama `/setup` sayfasına yönlendirir; oradaki SQL'i Supabase SQL Editor'de bir kez çalıştırın. Vercel gibi dosya sistemi kalıcı olmayan ortamlarda Supabase şarttır.
+- **Erişim:** İnternete açacaksanız `GEOBY_PASSWORD` mutlaka girin. Girilmezse uygulamaya herkes erişebilir.
+- **Site tarama:** Yalnızca herkese açık adresleri çeker; iç ağ ve bulut meta veri adresleri engellenir.
 
 ## Geliştirme
 
 ```bash
-npm run typecheck   # TypeScript
-npm test            # birim testleri (parser, metrikler, AI sağlayıcıları, yerel veritabanı)
+npm run typecheck                       # TypeScript
+npm test                                # birim testleri
+GEOBY_LIVE=1 GROQ_API_KEY=… npm test -- live   # gerçek servislere karşı deneme (kota kullanır)
 npm run build
 ```
 
 ```
 src/
-├── app/            # sayfalar + API (brand, competitors, prompts, prompts/run, runs/manual, ai/status, ai/test, overview, sources, …)
-├── components/     # dashboard sekmeleri, modallar, grafikler, UI
+├── app/(app)/          # Özet (/), /sorular, /kaynaklar, /ayarlar
+├── app/api/            # brand, competitors, prompts, prompts/run, runs, overview, sources, export, ai/*, login
+├── components/         # app (kabuk, filtreler), overview, prompts (tablo, yan panel, yapıştırma), sources, settings, onboarding, ui
 └── lib/
-    ├── ai/         # providers (Gemini, Groq, OpenRouter, Pollinations, OpenAI, Anthropic, Perplexity), engines, assistant
-    ├── db/         # DataStore arayüzü: local (JSON dosyası) ve supabase
-    ├── parser.ts   # cevap analizi
-    ├── metrics.ts  # görünürlük, SOV, trend, kaynaklar
-    ├── testing.ts  # test çalıştırma ve kaydetme
-    └── generators.ts / scraper.ts  # kurulum analizi
+    ├── ai/             # sağlayıcılar, model keşfi, hız sınırı (http.ts), asistan eşlemesi (engines.ts)
+    ├── db/             # DataStore: yerel JSON veya Supabase
+    ├── parser.ts       # cevap analizi (yapay zekâ kullanmaz, deterministik)
+    ├── match.ts        # ad eşleştirme (bölünmez boşluk, Türkçe İ/ı)
+    ├── metrics.ts      # görünürlük, ses payı, trend, fırsatlar, kaynaklar
+    ├── report.ts       # sayfaların veri modeli
+    └── net.ts          # güvenli site çekme
 ```
-
-## Güvenlik
-
-API anahtarları yalnızca sunucuda okunur, tarayıcıya gönderilmez. `.env.local` ve `.data/` git'e eklenmez. Uygulamada kullanıcı girişi yoktur (tek marka); internete açık kurulumda önüne bir kimlik doğrulama katmanı koyun.
