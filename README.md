@@ -69,6 +69,19 @@ Ollama veya LM Studio'da modeli açıp `LOCAL_AI_URL=http://localhost:11434/v1` 
 
 > 7B boyutundaki modeller kurulum önerilerinde marka adı uydurabilir. Önerilen rakipleri her zaman kontrol edin.
 
+## Düzenli test
+
+Ayarlar → **Düzenli test** açıkken (haftalık veya aylık), zamanı gelen testler otomatik bağlantısı olan asistanlarda **kendiliğinden** çalışır. Uygulama yarım saatte bir kontrol eder. Bunun için uygulamanın çalışıyor olması gerekir (`npm run dev` veya `npm start`). Kapatmak için `GEOBY_AUTORUN=false` yazın. Elle ölçülen asistanlar için Özet sayfasında "test zamanı" uyarısı görünür.
+
+Sunucusuz kurulumlarda (Vercel vb.) uygulama sürekli açık kalmaz. Bu durumda `.env.local` dosyasına `CRON_SECRET` girin ve bir zamanlanmış görevin şu adresi çağırmasını sağlayın:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://adresiniz/api/cron        # zamanı geldiyse çalıştırır
+curl -H "Authorization: Bearer $CRON_SECRET" "https://adresiniz/api/cron?force=1"  # hemen çalıştırır
+```
+
+Bütün testler başarısız olursa (ör. günlük kota dolduysa) sıradaki test tarihi ileri alınmaz; bir sonraki kontrolde yeniden denenir.
+
 ## Bilinen sınırlar (dürüstçe)
 
 - **ChatGPT ölçümü:** OpenAI anahtarı yoksa ChatGPT, OpenAI'nin açık modeliyle ölçülür. Gerçek ChatGPT'ye *yakındır* ama aynısı değildir; arayüz bunu her zaman belirtir.

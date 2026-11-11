@@ -24,7 +24,7 @@ export function SettingsPage() {
       >
         <Assistants />
       </Block>
-      <Block id="hatirlatici" title="Hatırlatıcı" description="Asistanların cevapları zamanla değişir. Düzenli test için hatırlatma.">
+      <Block id="hatirlatici" title="Düzenli test" description="Asistanların cevapları zamanla değişir; haftalık ölçüm eğilimi gösterir.">
         <Reminder />
       </Block>
       <Block id="veri" title="Veri">
@@ -392,6 +392,7 @@ function KeyHelp() {
 // ---------------------------------------------------------------------------
 
 function Reminder() {
+  const { autoModels } = useApp();
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -436,7 +437,7 @@ function Reminder() {
             onChange={() => save(!active, frequency)}
             className="h-4 w-4 accent-[var(--color-ink)]"
           />
-          Test zamanı gelince Özet sayfasında hatırlat
+          Düzenli test
         </label>
         <Segmented
           label="Sıklık"
@@ -448,9 +449,14 @@ function Reminder() {
           ]}
         />
       </div>
+      <p className="max-w-[62ch] text-[14px] text-ink-3">
+        {autoModels.length > 0
+          ? "Zamanı gelince otomatik bağlantısı olan asistanlarda testler kendiliğinden çalışır (uygulama açık olduğu sürece). Elle ölçülen asistanlar için Özet sayfasında uyarı görürsünüz."
+          : "Zamanı gelince Özet sayfasında uyarı görürsünüz. Otomatik bağlantı eklerseniz testler kendiliğinden çalışır."}
+      </p>
       {active && schedule?.next_due_at && (
-        <p className="text-[14px] text-ink-3">
-          Sonraki hatırlatma: {dateTime(schedule.next_due_at)}. Her test hatırlatmayı ileri alır.
+        <p className="text-[14px] text-ink-2">
+          Sıradaki test: {dateTime(schedule.next_due_at)}. Her test bu tarihi ileri alır.
         </p>
       )}
       {error && (

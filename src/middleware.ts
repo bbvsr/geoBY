@@ -5,7 +5,8 @@ export async function middleware(req: NextRequest) {
   if (!passwordEnabled()) return NextResponse.next();
 
   const { pathname } = req.nextUrl;
-  if (pathname === "/login" || pathname === "/api/login") return NextResponse.next();
+  // /api/cron kendi gizli anahtarıyla korunur
+  if (pathname === "/login" || pathname === "/api/login" || pathname === "/api/cron") return NextResponse.next();
 
   const cookie = req.cookies.get(SESSION_COOKIE)?.value ?? "";
   if (cookie && safeEqual(cookie, await sessionToken())) return NextResponse.next();
