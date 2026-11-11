@@ -1,118 +1,124 @@
-import type { ActionItem, Brand, DomainTypeBreakdown, RankingRow, SourceRow } from "@/types";
+import { rankOf } from "@/lib/metrics";
+import type { ActionItem, Brand, BrandRow, DomainTypeBreakdown, GapItem, SentimentSummary, SourceRow } from "@/types";
 
-/** Veriye göre dinamik GEO aksiyon önerileri (Site dışı / Site içi). */
-export function buildActions(
-  brand: Brand,
-  rankings: RankingRow[],
-  sources: SourceRow[],
-  domainTypes: DomainTypeBreakdown[],
-  totalRuns: number
-): ActionItem[] {
-  if (totalRuns === 0) {
-    return [
-      {
-        title: "İlk görünürlük testini yapın",
-        description:
-          "Öneriler test sonuçlarına göre oluşur. \"Tüm Soruları Test Et\" ile otomatik ya da Manuel Test ile cevap yapıştırarak başlayın.",
-        priority: "high",
-        kind: "owned",
-      },
-    ];
-  }
+const pct = (v: number) => `%${Math.round(v * 100)}`;
+
+/** Verilere göre somut yapılacaklar listesi. */
+export function buildActions(args: {
+  brand: Brand;
+  brands: BrandRow[];
+  sources: SourceRow[];
+  domainTypes: DomainTypeBreakdown[];
+  gaps: GapItem[];
+  sentiment: SentimentSummary;
+  genericRuns: number;
+}): ActionItem[] {
+  const { brand, brands, sources, domainTypes, gaps, sentiment, genericRuns } = args;
+  if (genericRuns === 0) return [];
 
   const actions: ActionItem[] = [];
-  const you = rankings.find((r) => r.isYou);
-  const vis = you?.visibility ?? 0;
-  const top = rankings.find((r) => !r.isYou && r.visibility > vis);
+  const you = brands.find((b) => b.isYou)!;
+  const leader = brands.find((b) => !b.isYou && b.visibility > you.visibility);
 
-  if (top) {
+  if (gaps.length > 0) {
+    const g = gaps[0];
     actions.push({
-      title: `${top.name} ile aradaki farkı kapatın`,
-      description: `${top.name} cevapların %${Math.round(top.visibility * 100)}'inde geçiyor, siz %${Math.round(vis * 100)}. "${brand.name} vs ${top.name}" karşılaştırma sayfası ve "${top.name} alternatifleri" içeriği hazırlayın.`,
+      title: `"${g.text}" sorusunda yoksunuz`,
+      description: `Bu soruda ${g.competitors.join(", ")} öneriliyor, siz önerilmiyorsunuz. Bu soruyu doğrudan cevaplayan bir sayfa yayınlayın ve rakiplerle karşılaştırma bölümü ekleyin.`,
       priority: "high",
       kind: "owned",
     });
   }
 
-  if (vis < 0.3) {
+  if (leader) {
     actions.push({
-      title: "\"En iyi ...\" listelerine girin",
+      title: `${leader.name} ile aradaki farkı kapatın`,
+      description: `${leader.name} genel soruların ${pct(leader.visibility)} kadarında geçiyor, siz ${pct(you.visibility)}. "${brand.name} mi ${leader.name} mı" karşılaştırma sayfası ve "${leader.name} alternatifleri" içeriği hazırlayın.`,
+      priority: "high",
+      kind: "owned",
+    });
+  }
+
+  if (you.visibility < 0.3) {
+    actions.push({
+      title: "Kategori listelerinde yer alın",
       description:
-        "Modeller genelde liste formatında öneri yapar. Kategorinizdeki \"en iyi\" ve \"önerilen\" listelerini yayınlayan sitelerle iletişime geçin; kendi sitenizde de net, karşılaştırmalı bir kategori sayfası yayınlayın.",
-      priority: vis < 0.1 ? "high" : "medium",
+        "Asistanlar öneri yaparken çoğunlukla \"en iyi ...\" listelerine ve karşılaştırma yazılarına dayanır. Kategorinizde bu listeleri yayınlayan sitelere ürününüzü tanıtın.",
+      priority: you.visibility < 0.1 ? "high" : "medium",
+      kind: "earned",
+    });
+  }
+
+  const topThirdParty = sources.filter((s) => s.domainType === "Editorial" || s.domainType === "Corporate").slice(0, 3);
+  if (topThirdParty.length > 0) {
+    actions.push({
+      title: "En çok kaynak gösterilen sitelerde görünün",
+      description: `Asistanlar en sık şu sitelere dayanıyor: ${topThirdParty.map((s) => s.key).join(", ")}. Bu sitelerde listelenmek, inceleme veya haber almak doğrudan etki eder.`,
+      priority: "medium",
       kind: "earned",
     });
   }
 
   const ugc = domainTypes.find((d) => d.type === "UGC");
-  if (ugc && ugc.count > 0) {
+  if (ugc && ugc.share >= 0.15) {
     actions.push({
-      title: "Kullanıcı içeriği platformlarında görünür olun",
-      description: `Kaynakların %${Math.round(ugc.percent)}'i Reddit, YouTube, Ekşi Sözlük, Şikayetvar gibi platformlardan. Bu platformlarda gerçek kullanıcı yorumlarını ve marka yanıtlarını artırın.`,
+      title: "Kullanıcı yorum platformlarında görünür olun",
+      description: `Kaynakların ${pct(ugc.share)} kadarı forum, sosyal medya ve şikâyet siteleri. Bu platformlardaki sorulara ve yorumlara marka olarak cevap verin.`,
       priority: "medium",
       kind: "earned",
     });
   }
 
   const own = sources.find((s) => s.domainType === "You");
-  if (!own || own.retrievalRate < 20) {
+  if (!own || own.share < 0.2) {
     actions.push({
-      title: "Sitenizi yapay zekanın kaynak göstereceği hale getirin",
+      title: "Sitenizi kaynak gösterilebilir hale getirin",
       description:
-        "Kendi siteniz nadiren kaynak gösteriliyor. Sık sorulan sorular (SSS) sayfası, açık fiyat/özellik tabloları, schema.org işaretlemesi ve llms.txt dosyası ekleyin.",
+        "Kendi siteniz nadiren kaynak gösteriliyor. Sık sorulan sorular sayfası, açık fiyat ve özellik tabloları, schema.org işaretlemesi ve kısa, alıntılanabilir cümleler ekleyin.",
       priority: "medium",
       kind: "owned",
     });
   }
 
-  const topCorporate = sources.filter((s) => s.domainType === "Corporate" || s.domainType === "Editorial").slice(0, 3);
-  if (topCorporate.length) {
+  if (sentiment.negative > sentiment.positive && sentiment.negative >= 2) {
     actions.push({
-      title: "En çok alıntılanan sitelerde yer alın",
-      description: `Modeller en sık şu kaynaklara dayanıyor: ${topCorporate.map((s) => s.key).join(", ")}. Bu sitelerde listelenmek, inceleme veya haber almak görünürlüğü doğrudan artırır.`,
-      priority: "medium",
-      kind: "earned",
-    });
-  }
-
-  if (you && you.sentiment > 0 && you.sentiment < 50) {
-    actions.push({
-      title: "Olumsuz algıyı düzeltin",
-      description:
-        "Markanızdan bahsedilen cümlelerde olumsuz ifadeler ağır basıyor. Şikayet platformlarında yanıt verin, güncel ve olumlu müşteri yorumlarını öne çıkarın.",
+      title: "Olumsuz ifadelerin kaynağını bulun",
+      description: `Markanızın geçtiği ${sentiment.negative} cevapta olumsuz ifadeler ağır basıyor. Bu cevapları Sorular sayfasında açıp hangi şikâyetlere dayandığına bakın.`,
       priority: "high",
       kind: "earned",
     });
   }
 
-  actions.push({
-    title: "Rehber içerik merkezi oluşturun",
-    description:
-      "Kategorinizle ilgili soru-cevap formatında rehberleri tek bir bölümde toplayın. Net başlıklar ve kısa, alıntılanabilir cevaplar modellerin sizi kaynak göstermesini kolaylaştırır.",
-    priority: "low",
-    kind: "owned",
-  });
-
-  return actions;
+  return actions.slice(0, 6);
 }
 
-/** Görünürlük seviyesine göre tek cümlelik özet. */
-export function keyInsight(
-  brand: Brand,
-  visibility: number,
-  competitorAvg: number,
-  totalRuns: number
-): string {
-  if (totalRuns === 0) {
-    return "Henüz test yok. İlk testten sonra burada markanızın durumu özetlenecek.";
+/** Raporun ilk cümlesi: durumu düz bir dille özetler. */
+export function summarySentence(args: {
+  brand: Brand;
+  brands: BrandRow[];
+  genericRuns: number;
+  change: number | null;
+}): string {
+  const { brand, brands, genericRuns, change } = args;
+  if (genericRuns === 0) return "";
+  const you = brands.find((b) => b.isYou)!;
+  const rank = rankOf(brands);
+  const leader = brands.find((b) => !b.isYou && b.visibility > you.visibility) ?? brands.find((b) => !b.isYou);
+  const tied = brands.filter((b) => !b.isYou && b.visibility === you.visibility && you.visibility > 0);
+
+  let s = `${brand.name}, genel soruların ${pct(you.visibility)} kadarında öneriliyor`;
+  if (brands.length === 1 || !leader) {
+    s += ".";
+  } else if (you.visibility === 0) {
+    const top = brands.find((b) => !b.isYou && b.visibility > 0);
+    s += top ? `. En çok önerilen rakip ${top.name} (${pct(top.visibility)}).` : `; izlediğiniz rakipler de önerilmiyor.`;
+  } else if (rank === 1) {
+    s += tied.length ? ` ve en önde; ${tied.map((t) => t.name).join(", ")} ile aynı düzeyde.` : ` ve izlediğiniz markalar arasında en önde.`;
+  } else {
+    s += `; ${brands.length} marka arasında ${rank}. sırada. En önde ${brands[0].name} (${pct(brands[0].visibility)}).`;
   }
-  const v = Math.round(visibility * 100);
-  const c = Math.round(competitorAvg * 100);
-  if (visibility >= 0.3) {
-    return `${brand.name} güçlü görünürlükte: cevapların %${v}'inde öneriliyor. Odak: konumu korumak ve olumlu tonu artırmak.`;
+  if (change !== null && Math.abs(change) >= 0.01) {
+    s += ` Önceki döneme göre ${Math.round(Math.abs(change) * 100)} puan ${change > 0 ? "yükseldi" : "düştü"}.`;
   }
-  if (visibility >= 0.1) {
-    return `${brand.name} cevapların %${v}'inde geçiyor; rakipler ortalama %${c}. Odak: karşılaştırma içerikleriyle farkı kapatmak.`;
-  }
-  return `${brand.name} cevapların yalnızca %${v}'inde geçiyor. Öncelik: "en iyi" listelerine girmek ve karşılaştırma içeriği üretmek.`;
+  return s;
 }

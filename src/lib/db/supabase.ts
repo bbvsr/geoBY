@@ -1,7 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type {
   Brand,
-  BrandDocument,
   Citation,
   Competitor,
   ModelId,
@@ -17,7 +16,8 @@ import {
   type TableCheck,
 } from "./types";
 
-const BUCKET = "geoby-docs";
+/** PostgREST varsayılan olarak tek seferde en fazla 1000 satır döndürür. */
+const PAGE = 1000;
 
 /** Supabase hatasını anlaşılır bir Error'a çevirir. */
 function check<T>(res: { data: T; error: { message: string } | null }, what: string): T {
@@ -47,9 +47,18 @@ export function createSupabaseStore(url: string, secretKey: string): DataStore {
     return (check(res, "schedules") as Schedule | null) ?? null;
   }
 
-  async function ensureBucket() {
-    const { data } = await client.storage.getBucket(BUCKET);
-    if (!data) await client.storage.createBucket(BUCKET, { public: false });
+  /** Sorguyu sayfa sayfa çalıştırıp tüm satırları toplar (1000 satır sınırına takılmamak için). */
+  async function all<T>(
+    build: () => { range: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }> },
+    what: string
+  ): Promise<T[]> {
+    const out: T[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const res = await build().range(from, from + PAGE - 1);
+      const rows = check(res, what) ?? [];
+      out.push(...rows);
+      if (rows.length < PAGE) return out;
+    }
   }
 
   return {
@@ -172,20 +181,26 @@ export function createSupabaseStore(url: string, secretKey: string): DataStore {
       const prompts = await getPrompts(filter.brandId, false);
       const ids = prompts.map((p) => p.id);
       if (ids.length === 0) return [];
-      let q = client.from("runs").select("*").in("prompt_id", ids);
-      if (filter.model) q = q.eq("model", filter.model);
-      if (filter.days) q = q.gte("created_at", sinceIso(filter.days));
-      const res = await q.order("created_at", { ascending: false });
-      return (check(res, "runs") ?? []) as Run[];
+      const out: Run[] = [];
+      // Çok sayıda soruda URL sınırına takılmamak için soru kimliklerini parçala
+      for (let i = 0; i < ids.length; i += 150) {
+        const chunk = ids.slice(i, i + 150);
+        const rows = await all<Run>(() => {
+          let q = client.from("runs").select("*").in("prompt_id", chunk);
+          if (filter.model) q = q.eq("model", filter.model);
+          if (filter.days) q = q.gte("created_at", sinceIso(filter.days));
+          return q.order("created_at", { ascending: false }).order("id");
+        }, "runs");
+        out.push(...rows);
+      }
+      return out.sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
 
     async getRunsForPrompt(promptId) {
-      const res = await client
-        .from("runs")
-        .select("*")
-        .eq("prompt_id", promptId)
-        .order("created_at", { ascending: false });
-      return (check(res, "runs") ?? []) as Run[];
+      return all<Run>(
+        () => client.from("runs").select("*").eq("prompt_id", promptId).order("created_at", { ascending: false }).order("id"),
+        "runs"
+      );
     },
 
     async createRun(run) {
@@ -198,11 +213,8 @@ export function createSupabaseStore(url: string, secretKey: string): DataStore {
       const out: Citation[] = [];
       // Uzun ID listelerinde URL sınırına takılmamak için parça parça çek
       for (let i = 0; i < runIds.length; i += 200) {
-        const res = await client
-          .from("citations")
-          .select("*")
-          .in("run_id", runIds.slice(i, i + 200));
-        out.push(...((check(res, "citations") ?? []) as Citation[]));
+        const chunk = runIds.slice(i, i + 200);
+        out.push(...(await all<Citation>(() => client.from("citations").select("*").in("run_id", chunk).order("id"), "citations")));
       }
       return out;
     },
@@ -213,6 +225,22 @@ export function createSupabaseStore(url: string, secretKey: string): DataStore {
         await client.from("citations").insert(citations.map((c) => ({ run_id: runId, ...c }))),
         "citations"
       );
+    },
+
+    async updateRunAnalysis(id, patch) {
+      check(await client.from("runs").update(patch).eq("id", id), "runs");
+    },
+
+    async deleteRun(id) {
+      // citations tablosu ON DELETE CASCADE ile birlikte silinir
+      check(await client.from("runs").delete().eq("id", id), "runs");
+    },
+
+    async replaceCitations(runId, citations) {
+      check(await client.from("citations").delete().eq("run_id", runId), "citations");
+      if (citations.length) {
+        check(await client.from("citations").insert(citations.map((c) => ({ run_id: runId, ...c }))), "citations");
+      }
     },
 
     getSchedule,
@@ -244,30 +272,9 @@ export function createSupabaseStore(url: string, secretKey: string): DataStore {
       );
     },
 
-    async getDocuments(brandId) {
-      const res = await client
-        .from("documents")
-        .select("*")
-        .eq("brand_id", brandId)
-        .order("created_at", { ascending: false });
-      return (check(res, "documents") ?? []) as BrandDocument[];
-    },
-
-    async saveDocument(brandId, file) {
-      await ensureBucket();
-      const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-      const path = `${brandId}/${Date.now()}-${safeName}`;
-      const up = await client.storage.from(BUCKET).upload(path, file.data, {
-        contentType: file.type || "application/octet-stream",
-        upsert: true,
-      });
-      if (up.error) throw new Error(`Dosya yüklenemedi: ${up.error.message}`);
-      const res = await client
-        .from("documents")
-        .insert({ brand_id: brandId, name: file.name, storage_path: path, mime: file.type })
-        .select()
-        .single();
-      return check(res, "documents") as BrandDocument;
+    async deleteBrand(brandId) {
+      // Rakipler, sorular, testler, kaynaklar ve hatırlatıcı ON DELETE CASCADE ile silinir
+      check(await client.from("brands").delete().eq("id", brandId), "brands");
     },
   };
 }

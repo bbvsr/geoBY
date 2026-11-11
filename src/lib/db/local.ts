@@ -4,7 +4,6 @@ import { randomUUID } from "crypto";
 import {
   STANDARD_MODELS,
   type Brand,
-  type BrandDocument,
   type Citation,
   type Competitor,
   type Prompt,
@@ -25,7 +24,6 @@ interface LocalData {
   runs: Run[];
   citations: Citation[];
   schedules: Schedule[];
-  documents: BrandDocument[];
 }
 
 const EMPTY: LocalData = {
@@ -35,7 +33,6 @@ const EMPTY: LocalData = {
   runs: [],
   citations: [],
   schedules: [],
-  documents: [],
 };
 
 // Eşzamanlı istekler dosyayı bozmasın diye tüm işlemler sıraya alınır.
@@ -50,13 +47,19 @@ function serialize<T>(fn: () => Promise<T>): Promise<T> {
 
 export function createLocalStore(dataDir: string): DataStore {
   const file = path.join(dataDir, "geoby.json");
-  const uploadDir = path.join(dataDir, "uploads");
 
   async function load(): Promise<LocalData> {
     try {
       const raw = await fs.readFile(file, "utf8");
       const parsed = JSON.parse(raw) as Partial<LocalData>;
-      return { ...EMPTY, ...parsed };
+      return {
+        brands: parsed.brands ?? [],
+        competitors: parsed.competitors ?? [],
+        prompts: parsed.prompts ?? [],
+        runs: parsed.runs ?? [],
+        citations: parsed.citations ?? [],
+        schedules: parsed.schedules ?? [],
+      };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return structuredClone(EMPTY);
       throw new Error(`Yerel veri dosyası okunamadı (${file}): ${(e as Error).message}`);
@@ -227,6 +230,18 @@ export function createLocalStore(dataDir: string): DataStore {
         return r;
       }),
 
+    updateRunAnalysis: (id, patch) =>
+      write((d) => {
+        const r = d.runs.find((x) => x.id === id);
+        if (r) Object.assign(r, patch);
+      }),
+
+    deleteRun: (id) =>
+      write((d) => {
+        d.runs = d.runs.filter((r) => r.id !== id);
+        d.citations = d.citations.filter((c) => c.run_id !== id);
+      }),
+
     getCitationsForRuns: (runIds) =>
       read((d) => {
         const set = new Set(runIds);
@@ -235,6 +250,21 @@ export function createLocalStore(dataDir: string): DataStore {
 
     createCitations: (runId, citations) =>
       write((d) => {
+        for (const c of citations) {
+          d.citations.push({
+            id: randomUUID(),
+            run_id: runId,
+            domain: c.domain,
+            url: c.url,
+            domain_type: c.domain_type as Citation["domain_type"],
+            created_at: now(),
+          });
+        }
+      }),
+
+    replaceCitations: (runId, citations) =>
+      write((d) => {
+        d.citations = d.citations.filter((c) => c.run_id !== runId);
         for (const c of citations) {
           d.citations.push({
             id: randomUUID(),
@@ -280,27 +310,16 @@ export function createLocalStore(dataDir: string): DataStore {
         s.next_due_at = nextDueIso(s.frequency, t);
       }),
 
-    getDocuments: (brandId) =>
-      read((d) => d.documents.filter((x) => x.brand_id === brandId).sort(byCreatedDesc)),
-
-    async saveDocument(brandId, f) {
-      const safeName = f.name.replace(/[^\w.\-]+/g, "_");
-      const rel = `${brandId}/${Date.now()}-${safeName}`;
-      const abs = path.join(uploadDir, rel);
-      await fs.mkdir(path.dirname(abs), { recursive: true });
-      await fs.writeFile(abs, f.data);
-      return write((d) => {
-        const doc: BrandDocument = {
-          id: randomUUID(),
-          brand_id: brandId,
-          name: f.name,
-          storage_path: `local:${rel}`,
-          mime: f.type || null,
-          created_at: now(),
-        };
-        d.documents.push(doc);
-        return doc;
-      });
-    },
+    deleteBrand: (brandId) =>
+      write((d) => {
+        const promptIds = new Set(d.prompts.filter((p) => p.brand_id === brandId).map((p) => p.id));
+        const runIds = new Set(d.runs.filter((r) => promptIds.has(r.prompt_id)).map((r) => r.id));
+        d.citations = d.citations.filter((c) => !runIds.has(c.run_id));
+        d.runs = d.runs.filter((r) => !runIds.has(r.id));
+        d.prompts = d.prompts.filter((p) => p.brand_id !== brandId);
+        d.competitors = d.competitors.filter((c) => c.brand_id !== brandId);
+        d.schedules = d.schedules.filter((x) => x.brand_id !== brandId);
+        d.brands = d.brands.filter((b) => b.id !== brandId);
+      }),
   };
 }

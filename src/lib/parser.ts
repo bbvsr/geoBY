@@ -1,5 +1,6 @@
 import type { Competitor, DomainType, ParsedResponse, Sentiment } from "@/types";
 import { extractDomain, escapeRegExp } from "@/lib/utils";
+import { findTerm } from "@/lib/match";
 
 /**
  * LLM cevabını analiz eder (yapay zeka KULLANMAZ — deterministik ve hızlı):
@@ -81,11 +82,7 @@ function countWord(text: string, word: string, allowSuffix: boolean): number {
  * yalnızca kesme işaretiyle kabul edilir ("Getir'den" evet, "getirdi" hayır).
  */
 function findRanges(text: string, term: string): [number, number][] {
-  if (!term || term.length < 2) return [];
-  const re = new RegExp(`(?<![${L}])${escapeRegExp(term)}(?![${L}])`, "giu");
-  const out: [number, number][] = [];
-  for (const m of text.matchAll(re)) out.push([m.index!, m.index! + m[0].length]);
-  return out;
+  return findTerm(text, term);
 }
 
 /** Ad ve domain geçişlerini birleştirir; iç içe olanları ("Trendyol" ⊂ "trendyol.com") bir kez sayar. */
@@ -138,7 +135,10 @@ function detectPosition(
 ): number {
   const lineStart = text.lastIndexOf("\n", brandFirst - 1) + 1;
   const line = text.slice(lineStart, brandFirst);
-  const item = line.match(/^\s*(?:[#>*_\-\s]*)(\d{1,2})[.)]\s/);
+  const item =
+    line.match(/^\s*(?:[#>*_\-\s]*)(\d{1,2})[.)]\s/) ??
+    // Markdown tablosu: "| 2 | Hugging Face | ..."
+    line.match(/^\s*\|\s*\**(\d{1,2})\.?\**\s*\|/);
   if (item) {
     const n = parseInt(item[1], 10);
     if (n >= 1 && n <= 20) return n;
@@ -169,6 +169,11 @@ function extractCitations(
     });
   }
   return result;
+}
+
+/** Metinde markanın (adı veya alan adı) geçip geçmediği — ör. sorunun kendisi markalı mı? */
+export function textMentions(text: string, name: string, domain: string): boolean {
+  return mentionRanges(text ?? "", name, domain).length > 0;
 }
 
 export interface ParseInput {

@@ -3,7 +3,7 @@ import { extractDomain } from "@/lib/utils";
 import { askJSON } from "@/lib/ai/assistant";
 import type { SiteSnapshot } from "@/lib/scraper";
 
-export const TOPICS = ["Genel", "Kategori", "Core", "Affiliate", "Rakip", "Ücretsiz araç"] as const;
+export const TOPICS = ["Genel", "Kategori", "Karşılaştırma", "Rakip", "Fiyat", "Marka"] as const;
 
 // ---------------------------------------------------------------------------
 // Yapay zeka destekli site analizi (varsa). Yoksa kural tabanlı sonuç döner.
@@ -33,7 +33,7 @@ ${fetched ? `Siteden toplanan içerik:\n${text}` : "Site içeriği çekilemedi; 
   "description": "markayı anlatan tek cümle",
   "targetAudience": "hedef kitle, kısa",
   "competitors": [{"name": "Rakip adı", "domain": "rakip.com"}],
-  "prompts": [{"text": "soru", "topic": "Kategori|Core|Affiliate|Rakip|Ücretsiz araç"}]
+  "prompts": [{"text": "soru", "topic": "Kategori|Karşılaştırma|Rakip|Fiyat|Marka"}]
 }
 
 Kurallar:
@@ -99,8 +99,11 @@ export function generatePrompts(
   if (crawl.suggestedPrompts?.length) return crawl.suggestedPrompts;
 
   const brand = crawl.brandName || extractDomain(domain);
-  const category = (crawl.category || "yazılım").toLocaleLowerCase("tr");
-  const audience = crawl.targetAudience?.toLocaleLowerCase("tr") || "";
+  // Kullanıcının yazdığı gibi bırak: küçük harfe çevirmek "API" gibi kısaltmaları "apı" yapar
+  const category = (crawl.category || "").trim();
+  // Kategori bilinmeden üretilen sorular anlamsız olur; kullanıcı kategoriyi yazınca tekrar istenir
+  if (!category) return [];
+  const audience = crawl.targetAudience?.trim() || "";
   const hints = (crawl.competitorHints || []).filter(Boolean);
 
   const out: { text: string; topic: string }[] = [];
@@ -111,11 +114,11 @@ export function generatePrompts(
   push(`en iyi ${category} hangisi, önerilerin neler`, "Kategori");
   push(`Türkiye'de en çok tercih edilen ${category} markaları`, "Kategori");
   if (audience) push(`${audience} için en iyi ${category}`, "Kategori");
-  push(`${category} seçerken nelere dikkat etmeliyim, hangi markayı önerirsin`, "Core");
-  push(`uygun fiyatlı ${category} önerisi`, "Ücretsiz araç");
-  push(`${brand} güvenilir mi, kullananların yorumları`, "Core");
-  push(`${brand} alternatifleri`, "Affiliate");
-  for (const h of hints.slice(0, 2)) push(`${brand} mı ${h} mı, hangisi daha iyi`, "Rakip");
+  push(`${category} seçerken nelere dikkat etmeliyim, hangi markayı önerirsin`, "Karşılaştırma");
+  push(`uygun fiyatlı ${category} önerisi`, "Fiyat");
+  push(`${brand} güvenilir mi, kullananların yorumları`, "Marka");
+  push(`${brand} alternatifleri`, "Marka");
+  for (const h of hints.slice(0, 2)) push(`${h} alternatifleri`, "Rakip");
 
   return out.slice(0, 8);
 }

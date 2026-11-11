@@ -143,15 +143,6 @@ export interface Schedule {
   created_at: string;
 }
 
-export interface BrandDocument {
-  id: string;
-  brand_id: string;
-  name: string;
-  storage_path: string;
-  mime: string | null;
-  created_at: string;
-}
-
 // ---- Türetilmiş / API tipleri ----
 export interface CrawlResult {
   title: string;
@@ -171,56 +162,26 @@ export interface CrawlResult {
   fetched?: boolean;
 }
 
-export interface RankingRow {
-  name: string;
-  domain: string;
-  isYou: boolean;
-  visibility: number;
-  sov: number;
-  sentiment: number;
-  position: number | null;
-  change?: number;
-}
-
 export interface TrendPoint {
-  date: string;
+  /** Haftanın başlangıcı (Pazartesi), YYYY-AA-GG */
+  week: string;
+  /** Marka/rakip adı → görünürlük yüzdesi; o hafta test yoksa alan hiç yoktur */
   [brandName: string]: number | string;
 }
 
 export interface SourceRow {
-  key: string; // domain veya url
+  key: string; // alan adı veya URL
   domainType: DomainType;
-  retrievalRate: number;
-  citationRate: number;
+  /** Cevapların yüzde kaçında kaynak olarak geçti (0-1) */
+  share: number;
   count: number;
 }
 
 export interface DomainTypeBreakdown {
   type: DomainType;
   count: number;
-  percent: number;
-}
-
-export interface OverviewMetrics {
-  visibility: number;
-  visibilityChange: number;
-  mentionedRuns: number;
-  totalRuns: number;
-  avgSentiment: number;
-  avgPosition: number | null;
-  totalCitations: number;
-  competitiveRank: number;
-}
-
-export interface RecentChat {
-  promptId: string;
-  mentioned: boolean;
-  promptText: string;
-  models: ModelId[];
-  citationCount: number;
-  sentiment: number;
-  position: number | null;
-  date: string;
+  /** 0-1 */
+  share: number;
 }
 
 export interface ActionItem {
@@ -230,27 +191,93 @@ export interface ActionItem {
   kind: "earned" | "owned";
 }
 
-export interface PromptWithMetrics extends Prompt {
+export interface BrandRow {
+  name: string;
+  domain: string;
+  isYou: boolean;
+  /** Genel (marka adı geçmeyen) sorularda cevapların yüzde kaçında geçti (0-1) */
   visibility: number;
-  sentiment: number;
-  position: number | null;
-  models: ModelId[];
-  totalRuns: number;
+  /** Tüm marka geçişleri içindeki payı (0-1) */
+  sov: number;
+  mentions: number;
 }
 
-export interface ModelBreakdown {
+export interface SentimentSummary {
+  /** 0-100, marka hiç geçmediyse null */
+  score: number | null;
+  positive: number;
+  neutral: number;
+  negative: number;
+}
+
+export interface ModelSummary {
   model: ModelId;
+  runs: number;
+  /** null: bu modelde genel soru testi yok */
+  visibility: number | null;
+}
+
+/** Markanın geçmediği ama rakiplerin geçtiği soru — en somut fırsat. */
+export interface GapItem {
+  promptId: string;
+  text: string;
+  competitors: string[];
+  models: ModelId[];
+}
+
+export interface OverviewReport {
+  days: number;
+  totals: {
+    runs: number;
+    /** Görünürlük hesabına giren (marka adı geçmeyen sorulardaki) cevaplar */
+    genericRuns: number;
+    activePrompts: number;
+    testedPrompts: number;
+    lastTestAt: string | null;
+  };
+  visibility: { value: number; mentioned: number; total: number; change: number | null };
+  rank: { position: number; of: number };
+  avgPosition: number | null;
+  sentiment: SentimentSummary;
+  brands: BrandRow[];
+  byModel: ModelSummary[];
+  trend: TrendPoint[];
+  gaps: GapItem[];
+  sources: SourceRow[];
+  domainTypes: DomainTypeBreakdown[];
+  actions: ActionItem[];
+  summary: string;
+  schedule: Schedule | null;
+}
+
+/** Soru × model tablosundaki bir hücre: o modeldeki en son test. */
+export interface PromptCell {
+  runId: string;
   mentioned: boolean;
-  mentionCount: number;
   position: number | null;
   sentiment: Sentiment;
-  citationCount: number;
-  response: string | null;
-  queryText: string | null;
-  source: string | null;
-  date: string | null;
-  competitorsMentioned: string[];
-  hasRun: boolean;
+  date: string;
+}
+
+export interface PromptRow extends Prompt {
+  /** Soru metninde markanın adı geçiyor (görünürlük hesabına girmez) */
+  branded: boolean;
+  cells: Partial<Record<ModelId, PromptCell>>;
+  /** Dönemdeki tüm testlerde geçme oranı (0-1); test yoksa null */
+  visibility: number | null;
+  totalRuns: number;
+  lastRunAt: string | null;
+}
+
+export interface RunDetail extends Run {
+  citations: { domain: string; url: string | null; domain_type: DomainType }[];
+}
+
+export interface PromptDetail {
+  prompt: Prompt;
+  branded: boolean;
+  /** En yeni önce */
+  runs: RunDetail[];
 }
 
 // Parser çıktısı

@@ -85,3 +85,43 @@ export async function autoTestPrompt(
   }
   return results;
 }
+
+/**
+ * Marka adı/alan adı veya rakip listesi değişince kayıtlı tüm cevapları yeniden
+ * analiz eder. Cevap metinleri saklandığı için ağ çağrısı gerekmez. Asistanın
+ * verdiği kaynak bağlantıları (metinde geçmeyenler dahil) korunur.
+ */
+export async function reanalyzeBrand(brand: Brand): Promise<number> {
+  const store = db();
+  const [competitors, runs] = await Promise.all([store.getCompetitors(brand.id), store.getRuns({ brandId: brand.id })]);
+  if (runs.length === 0) return 0;
+  const citations = await store.getCitationsForRuns(runs.map((r) => r.id));
+  const urlsByRun = new Map<string, string[]>();
+  for (const c of citations) {
+    const list = urlsByRun.get(c.run_id) ?? [];
+    list.push(c.url || `https://${c.domain}`);
+    urlsByRun.set(c.run_id, list);
+  }
+
+  for (const run of runs) {
+    const parsed = parseResponse({
+      response: run.response ?? "",
+      brandName: brand.name,
+      brandDomain: brand.domain,
+      competitors,
+      extraCitations: urlsByRun.get(run.id) ?? [],
+    });
+    await store.updateRunAnalysis(run.id, {
+      mentioned: parsed.mentioned,
+      mention_count: parsed.mentionCount,
+      position_score: parsed.positionScore,
+      sentiment: parsed.sentiment,
+      competitor_mentions: parsed.competitorMentions,
+    });
+    await store.replaceCitations(
+      run.id,
+      parsed.citations.map((c) => ({ domain: c.domain, url: c.url, domain_type: c.domainType }))
+    );
+  }
+  return runs.length;
+}

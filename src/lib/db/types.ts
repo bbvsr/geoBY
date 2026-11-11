@@ -1,6 +1,5 @@
 import type {
   Brand,
-  BrandDocument,
   Citation,
   Competitor,
   ModelId,
@@ -16,7 +15,6 @@ export const TABLES = [
   "runs",
   "citations",
   "schedules",
-  "documents",
 ] as const;
 
 export type TableName = (typeof TABLES)[number];
@@ -45,6 +43,11 @@ export interface NewRun {
   competitor_mentions: Record<string, boolean>;
   source: string;
 }
+
+export type RunAnalysis = Pick<
+  NewRun,
+  "mentioned" | "mention_count" | "position_score" | "sentiment" | "competitor_mentions"
+>;
 
 export interface NewCitation {
   domain: string;
@@ -91,17 +94,21 @@ export interface DataStore {
   getRuns(filter: RunFilter): Promise<Run[]>;
   getRunsForPrompt(promptId: string): Promise<Run[]>;
   createRun(run: NewRun): Promise<Run>;
+  /** Yeniden analiz sonrası analiz alanlarını günceller. */
+  updateRunAnalysis(id: string, patch: RunAnalysis): Promise<void>;
+  deleteRun(id: string): Promise<void>;
 
   getCitationsForRuns(runIds: string[]): Promise<Citation[]>;
   createCitations(runId: string, citations: NewCitation[]): Promise<void>;
+  replaceCitations(runId: string, citations: NewCitation[]): Promise<void>;
 
   getSchedule(brandId: string): Promise<Schedule | null>;
   saveSchedule(brandId: string, frequency: "weekly" | "monthly", isActive: boolean): Promise<Schedule>;
   /** Test yapıldığında alarmı bir sonraki döneme ilerletir. */
   markTested(brandId: string): Promise<void>;
 
-  getDocuments(brandId: string): Promise<BrandDocument[]>;
-  saveDocument(brandId: string, file: { name: string; type: string; data: Buffer }): Promise<BrandDocument>;
+  /** Markayı ve ona bağlı tüm verileri siler (kurulum yeniden başlar). */
+  deleteBrand(brandId: string): Promise<void>;
 }
 
 export function sinceIso(days: number): string {

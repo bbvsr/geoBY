@@ -70,16 +70,6 @@ CREATE TABLE IF NOT EXISTS schedules (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- ---- documents (yüklenen belgeler) ----
-CREATE TABLE IF NOT EXISTS documents (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  brand_id UUID REFERENCES brands(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  storage_path TEXT NOT NULL,
-  mime TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
 -- ---- indexler ----
 CREATE INDEX IF NOT EXISTS idx_runs_prompt_id ON runs(prompt_id);
 CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at);
@@ -89,7 +79,6 @@ CREATE INDEX IF NOT EXISTS idx_citations_domain ON citations(domain);
 CREATE INDEX IF NOT EXISTS idx_prompts_brand_id ON prompts(brand_id);
 CREATE INDEX IF NOT EXISTS idx_competitors_brand_id ON competitors(brand_id);
 CREATE INDEX IF NOT EXISTS idx_schedules_brand_id ON schedules(brand_id);
-CREATE INDEX IF NOT EXISTS idx_documents_brand_id ON documents(brand_id);
 
 -- NOT: MVP tek-marka olduğu için RLS kapalıdır; tüm erişim server-side
 -- secret key ile yapılır. İleride auth eklenince RLS policy'leri tanımlanmalı.

@@ -1,5 +1,6 @@
 import type { CrawlResult } from "@/types";
 import { extractDomain } from "@/lib/utils";
+import { fetchPublicPage } from "@/lib/net";
 
 const PATHS = [
   "",
@@ -51,29 +52,21 @@ function extractHeadings(html: string): string[] {
   return out;
 }
 
-async function fetchPath(base: string, path: string): Promise<string> {
-  try {
-    const url = base.replace(/\/$/, "") + path;
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; GeoBY/1.0; +https://github.com/bbvsr/geoBY)",
-        Accept: "text/html,application/xhtml+xml",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return "";
-    const type = res.headers.get("content-type") ?? "";
-    if (type && !type.includes("html")) return "";
-    return (await res.text()).slice(0, 500_000);
-  } catch {
-    return "";
-  }
+async function fetchPath(origin: string, path: string): Promise<string> {
+  const page = await fetchPublicPage(origin + path, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; GeoBY/1.0; +https://github.com/bbvsr/geoBY)",
+      Accept: "text/html,application/xhtml+xml",
+    },
+  });
+  return page?.html ?? "";
 }
 
-function normalizeBase(input: string): string {
+/** Kullanıcının yazdığı adresten site kökünü çıkarır (ör. "markam.com/urun" → "https://markam.com"). */
+export function siteOrigin(input: string): string {
   let s = input.trim();
   if (!/^https?:\/\//i.test(s)) s = "https://" + s;
-  return s;
+  return new URL(s).origin;
 }
 
 export interface SiteSnapshot {
@@ -84,7 +77,7 @@ export interface SiteSnapshot {
 
 /** Basit HTML crawl — başlık, meta ve başlıklardan yapı çıkarır. */
 export async function crawlWebsite(rawUrl: string): Promise<SiteSnapshot> {
-  const base = normalizeBase(rawUrl);
+  const base = siteOrigin(rawUrl);
   const domain = extractDomain(base);
 
   // Ana sayfa + birkaç alt sayfa paralel çekilir
@@ -160,7 +153,8 @@ function guessCategory(text: string): string {
   for (const [cat, hints] of CATEGORY_HINTS) {
     if (hints.some((h) => lower.includes(h))) return cat;
   }
-  return "yazılım";
+  // Emin değilsek uydurmayalım: kullanıcı kurulumda kendisi yazar
+  return "";
 }
 
 const STOP = new Set([

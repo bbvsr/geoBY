@@ -17,6 +17,10 @@ export const POST = route(async (req) => {
   if (!response.trim()) throw new HttpError(400, "Cevap metni boş olamaz.");
 
   const competitors = await db().getCompetitors(brand.id);
+  // Asistanın ayrıca gösterdiği kaynak bağlantıları (ör. Perplexity/ChatGPT'nin kaynak listesi)
+  const extraCitations: string[] = Array.isArray(body.sources)
+    ? body.sources.filter((u: unknown): u is string => typeof u === "string" && /^https?:\/\//i.test(u.trim())).slice(0, 50)
+    : [];
 
   if (body.analyzeOnly) {
     const parsed = parseResponse({
@@ -24,13 +28,14 @@ export const POST = route(async (req) => {
       brandName: brand.name,
       brandDomain: brand.domain,
       competitors,
+      extraCitations,
     });
     return NextResponse.json({ parsed });
   }
 
   if (!isModelId(body.model)) throw new HttpError(400, "Geçerli bir model seçin.");
   const prompt = typeof body.promptId === "string" ? await db().getPromptById(body.promptId) : null;
-  if (!prompt) throw new HttpError(404, "Soru bulunamadı.");
+  if (!prompt || prompt.brand_id !== brand.id) throw new HttpError(404, "Soru bulunamadı.");
 
   const result = await saveTestResult({
     brand,
@@ -39,6 +44,7 @@ export const POST = route(async (req) => {
     model: body.model,
     queryText: str(body.queryText, 1000),
     response,
+    extraCitations,
     source: "manual",
   });
   await db().markTested(brand.id);

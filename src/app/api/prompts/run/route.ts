@@ -16,14 +16,15 @@ export const POST = route(async (req) => {
   const brand = await requireBrand();
   const body = await readJson(req);
   const prompt = typeof body.promptId === "string" ? await db().getPromptById(body.promptId) : null;
-  if (!prompt) throw new HttpError(404, "Soru bulunamadı.");
+  if (!prompt || prompt.brand_id !== brand.id) throw new HttpError(404, "Soru bulunamadı.");
+  if (!prompt.is_active) throw new HttpError(400, "Arşivdeki sorular test edilmez. Önce arşivden çıkarın.");
 
   const requested = Array.isArray(body.models) ? body.models.filter(isModelId) : brand.selected_models;
   const models = requested.filter(canAutoTest);
   if (models.length === 0) {
     throw new HttpError(
       400,
-      "Seçili modellerin hiçbiri için yapay zeka bağlantısı yok. Ayarlar > Yapay Zeka Bağlantıları'ndan ücretsiz bir anahtar ekleyin veya Manuel Test kullanın."
+      "İzlediğiniz asistanların hiçbiri için otomatik bağlantı yok. Ayarlar'dan ücretsiz bir anahtar ekleyin ya da cevapları elle yapıştırın."
     );
   }
 

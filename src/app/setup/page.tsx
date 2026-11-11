@@ -1,231 +1,44 @@
-"use client";
-import { useEffect, useState } from "react";
-import { Check, Copy, Database, RefreshCw, X } from "lucide-react";
-import { Button } from "@/components/ui/Button";
-import { Spinner } from "@/components/ui/Spinner";
+import { readFile } from "fs/promises";
+import path from "path";
+import type { Metadata } from "next";
+import { storageMode } from "@/lib/db";
+import { SetupCheck } from "./SetupCheck";
 
-const SCHEMA_SQL = `-- GeoBY şema
-CREATE TABLE IF NOT EXISTS brands (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL,
-  domain TEXT NOT NULL,
-  is_primary BOOLEAN DEFAULT false,
-  category TEXT,
-  description TEXT,
-  selected_models TEXT[] DEFAULT ARRAY['openai','claude','gemini','perplexity','google_aio']::TEXT[],
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS competitors (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name TEXT NOT NULL,
-  domain TEXT NOT NULL,
-  brand_id UUID REFERENCES brands(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS prompts (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  text TEXT NOT NULL,
-  topic TEXT DEFAULT 'Genel',
-  tags TEXT[] DEFAULT ARRAY[]::TEXT[],
-  is_active BOOLEAN DEFAULT true,
-  brand_id UUID REFERENCES brands(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS runs (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  prompt_id UUID REFERENCES prompts(id) ON DELETE CASCADE,
-  model TEXT NOT NULL,
-  response TEXT,
-  query_text TEXT,
-  mentioned BOOLEAN DEFAULT false,
-  mention_count INT DEFAULT 0,
-  position_score REAL,
-  sentiment TEXT DEFAULT 'neutral',
-  competitor_mentions JSONB DEFAULT '{}',
-  source TEXT DEFAULT 'manual',
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS citations (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  run_id UUID REFERENCES runs(id) ON DELETE CASCADE,
-  domain TEXT NOT NULL,
-  url TEXT,
-  domain_type TEXT DEFAULT 'Other',
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS schedules (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  brand_id UUID REFERENCES brands(id) ON DELETE CASCADE,
-  frequency TEXT NOT NULL DEFAULT 'weekly',
-  last_run_at TIMESTAMPTZ,
-  next_due_at TIMESTAMPTZ,
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS documents (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  brand_id UUID REFERENCES brands(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  storage_path TEXT NOT NULL,
-  mime TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_runs_prompt_id ON runs(prompt_id);
-CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at);
-CREATE INDEX IF NOT EXISTS idx_runs_model ON runs(model);
-CREATE INDEX IF NOT EXISTS idx_citations_run_id ON citations(run_id);
-CREATE INDEX IF NOT EXISTS idx_citations_domain ON citations(domain);
-CREATE INDEX IF NOT EXISTS idx_prompts_brand_id ON prompts(brand_id);
-CREATE INDEX IF NOT EXISTS idx_competitors_brand_id ON competitors(brand_id);
-CREATE INDEX IF NOT EXISTS idx_schedules_brand_id ON schedules(brand_id);
-CREATE INDEX IF NOT EXISTS idx_documents_brand_id ON documents(brand_id);`;
+export const metadata: Metadata = { title: "Veritabanı kurulumu" };
+export const dynamic = "force-dynamic";
 
-interface TableStatus {
-  table: string;
-  exists: boolean;
-}
-
-export default function SetupPage() {
-  const [results, setResults] = useState<TableStatus[]>([]);
-  const [allExist, setAllExist] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState("");
-
-  async function check() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/setup-db", { method: "POST" });
-      const data = await res.json();
-      setResults(data.results ?? []);
-      setAllExist(data.allTablesExist ?? false);
-      setError(data.allTablesExist ? "" : data.error ?? "");
-    } catch {
-      setResults([]);
-      setError("Sunucuya ulaşılamadı.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    check();
-  }, []);
-
-  async function copySql() {
-    try {
-      await navigator.clipboard.writeText(SCHEMA_SQL);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* pano izni yok; kullanıcı elle kopyalayabilir */
-    }
-  }
-
+export default async function SetupPage() {
+  const sql = await readFile(path.join(process.cwd(), "sql", "schema.sql"), "utf8");
   return (
-    <div className="mx-auto max-w-3xl px-6 py-16">
-      <div className="mb-8 flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15">
-          <Database className="h-5 w-5 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-xl font-semibold">GeoBY — Veritabanı Kurulumu</h1>
-          <p className="text-[13px] text-muted-foreground">
-            Aşağıdaki SQL&apos;i Supabase SQL Editor&apos;e yapıştırıp çalıştırın.
+    <main className="mx-auto max-w-[760px] px-5 pt-14 pb-24">
+      <p className="font-serif text-[22px] font-semibold tracking-[-0.02em]">GeoBY</p>
+      <h1 className="mt-8 font-serif text-[34px] leading-tight font-medium">Veritabanı kurulumu</h1>
+      {storageMode() === "local" ? (
+        <p className="mt-3 text-[16px] text-ink-2">
+          Uygulama yerel modda çalışıyor; kurulum gerekmez.{" "}
+          <a href="/" className="underline underline-offset-[3px]">
+            Uygulamaya dön
+          </a>
+        </p>
+      ) : (
+        <>
+          <p className="mt-3 max-w-[62ch] text-[16px] text-ink-2">
+            Supabase bağlantısı var ama tablolar henüz oluşturulmamış. Bir kez yapmanız yeterli:
           </p>
-        </div>
-      </div>
-
-      {/* Tablo durumları */}
-      <div className="mb-6 rounded-lg border border-border/40 bg-card/60 p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-[13px] font-semibold">Tablo Durumu</span>
-          <Button size="sm" variant="outline" onClick={check} disabled={loading}>
-            {loading ? (
-              <Spinner className="h-3.5 w-3.5" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-            Tabloları Kontrol Et
-          </Button>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {[
-            "brands",
-            "competitors",
-            "prompts",
-            "runs",
-            "citations",
-            "schedules",
-            "documents",
-          ].map((t) => {
-            const r = results.find((x) => x.table === t);
-            const ok = r?.exists;
-            return (
-              <div
-                key={t}
-                className="flex items-center gap-2 rounded-md border border-border/40 bg-background/40 px-3 py-2 text-[12px]"
-              >
-                {ok ? (
-                  <Check className="h-3.5 w-3.5 text-success" />
-                ) : (
-                  <X className="h-3.5 w-3.5 text-destructive" />
-                )}
-                <span className={ok ? "text-foreground" : "text-muted-foreground"}>
-                  {t}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        {error && !allExist && !loading && (
-          <p className="mt-3 break-words rounded-md bg-destructive/[0.06] px-3 py-2 text-[12px] text-destructive">
-            Supabase cevabı: {error}
+          <ol className="mt-4 list-decimal space-y-1.5 pl-5 text-[15px] text-ink-2">
+            <li>Supabase panelinde projenizi açın, soldan <b className="font-medium text-ink">SQL Editor</b>&apos;e girin.</li>
+            <li>Aşağıdaki SQL&apos;i kopyalayıp yapıştırın ve <b className="font-medium text-ink">Run</b>&apos;a basın.</li>
+            <li>Buraya dönüp “Tabloları kontrol et”e tıklayın.</li>
+          </ol>
+          <SetupCheck sql={sql} />
+          <p className="mt-6 text-[14px] text-ink-3">
+            Supabase kullanmak istemiyor musunuz? <code className="font-mono text-[13px]">.env.local</code> dosyasından{" "}
+            <code className="font-mono text-[13px]">SUPABASE_URL</code> ve{" "}
+            <code className="font-mono text-[13px]">SUPABASE_SECRET_KEY</code> satırlarını silip uygulamayı yeniden
+            başlatın; veriler bilgisayarınızda saklanır.
           </p>
-        )}
-        {allExist && (
-          <div className="mt-4 flex items-center justify-between rounded-md border border-success/20 bg-success/[0.06] px-3 py-2.5">
-            <span className="flex items-center gap-2 text-[13px] text-success">
-              <Check className="h-4 w-4" /> Tüm tablolar hazır.
-            </span>
-            <a href="/">
-              <Button size="sm">Panele Git</Button>
-            </a>
-          </div>
-        )}
-      </div>
-
-      {/* SQL bloğu */}
-      <div className="rounded-lg border border-border/40 bg-card/60">
-        <div className="flex items-center justify-between border-b border-border/40 px-4 py-2.5">
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-            sql/schema.sql
-          </span>
-          <Button size="sm" variant="ghost" onClick={copySql}>
-            {copied ? (
-              <Check className="h-3.5 w-3.5 text-success" />
-            ) : (
-              <Copy className="h-3.5 w-3.5" />
-            )}
-            {copied ? "Kopyalandı" : "Kopyala"}
-          </Button>
-        </div>
-        <pre className="max-h-[360px] overflow-auto p-4 text-[11px] leading-relaxed text-muted-foreground">
-          {SCHEMA_SQL}
-        </pre>
-      </div>
-
-      <p className="mt-4 text-[12px] text-muted-foreground/70">
-        Supabase panelinizde{" "}
-        <span className="text-foreground">SQL Editor</span> bölümünü açın, bu
-        SQL&apos;i yapıştırın ve çalıştırın. Ardından &quot;Tabloları Kontrol
-        Et&quot;e tıklayın.
-      </p>
-      <p className="mt-2 text-[12px] text-muted-foreground/70">
-        Supabase kullanmak istemiyor musunuz? <code>.env.local</code> dosyasından{" "}
-        <code>SUPABASE_URL</code> ve <code>SUPABASE_SECRET_KEY</code> satırlarını silip uygulamayı
-        yeniden başlatın; veriler bilgisayarınızda saklanır.
-      </p>
-    </div>
+        </>
+      )}
+    </main>
   );
 }

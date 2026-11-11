@@ -1,320 +1,229 @@
+/**
+ * Görünürlük hesapları. Saf fonksiyonlar; veritabanına dokunmaz.
+ *
+ * Temel kural: "Görünürlük" yalnızca sorunun kendisinde marka adı GEÇMEYEN
+ * (genel) sorulardan hesaplanır. "X alternatifleri" gibi markalı bir soruda
+ * markanın cevapta geçmesi doğaldır ve görünürlüğü yapay olarak şişirir.
+ * Markalı sorular tonu (sentiment) ölçmek için yine kullanılır.
+ */
 import type {
   Brand,
+  BrandRow,
   Citation,
   Competitor,
   DomainType,
   DomainTypeBreakdown,
+  GapItem,
   ModelId,
-  OverviewMetrics,
+  ModelSummary,
   Prompt,
-  RankingRow,
-  RecentChat,
   Run,
+  SentimentSummary,
+  Sentiment,
   SourceRow,
   TrendPoint,
-  Sentiment,
 } from "@/types";
+import { STANDARD_MODELS, ALL_MODELS } from "@/types";
+import { textMentions } from "@/lib/parser";
 
-const SENTIMENT_SCORE: Record<Sentiment, number> = {
-  positive: 80,
-  neutral: 55,
-  negative: 30,
-};
+const SENTIMENT_SCORE: Record<Sentiment, number> = { positive: 80, neutral: 55, negative: 30 };
+
+export function isBrandedPrompt(text: string, brand: Pick<Brand, "name" | "domain">): boolean {
+  return textMentions(text, brand.name, brand.domain);
+}
 
 export function visibility(runs: Run[]): number {
   if (runs.length === 0) return 0;
-  const mentioned = runs.filter((r) => r.mentioned).length;
-  return mentioned / runs.length;
-}
-
-export function avgSentiment(runs: Run[]): number {
-  const scoped = runs.filter((r) => r.mentioned);
-  if (scoped.length === 0) return 0;
-  const total = scoped.reduce(
-    (s, r) => s + (SENTIMENT_SCORE[r.sentiment] ?? 55),
-    0
-  );
-  return Math.round(total / scoped.length);
+  return runs.filter((r) => r.mentioned).length / runs.length;
 }
 
 export function avgPosition(runs: Run[]): number | null {
-  const scores = runs
-    .filter((r) => r.position_score != null)
-    .map((r) => r.position_score as number);
+  const scores = runs.filter((r) => r.mentioned && r.position_score != null).map((r) => r.position_score as number);
   if (scores.length === 0) return null;
   return scores.reduce((a, b) => a + b, 0) / scores.length;
 }
 
-/** Share of Voice: markanın geçişleri / (marka + tüm rakip geçişleri) */
-export function shareOfVoice(runs: Run[]): number {
-  let brand = 0;
-  let comp = 0;
-  for (const r of runs) {
-    if (r.mentioned) brand += 1;
-    const mentions = r.competitor_mentions ?? {};
-    for (const k of Object.keys(mentions)) if (mentions[k]) comp += 1;
-  }
-  const denom = brand + comp;
-  return denom === 0 ? 0 : brand / denom;
+export function sentimentSummary(runs: Run[]): SentimentSummary {
+  const mentioned = runs.filter((r) => r.mentioned);
+  const count = (s: Sentiment) => mentioned.filter((r) => r.sentiment === s).length;
+  const score = mentioned.length
+    ? Math.round(mentioned.reduce((s, r) => s + (SENTIMENT_SCORE[r.sentiment] ?? 55), 0) / mentioned.length)
+    : null;
+  return { score, positive: count("positive"), neutral: count("neutral"), negative: count("negative") };
 }
 
-function sundayOf(date: Date): Date {
+/** Bir rakibin bir cevapta geçip geçmediği (yalnızca güncel rakipler sayılır). */
+function competitorIn(run: Run, name: string): boolean {
+  return !!(run.competitor_mentions ?? {})[name];
+}
+
+/** Marka ve güncel rakipler için görünürlük + ses payı (SOV). Görünürlüğe göre sıralı. */
+export function brandRows(runs: Run[], brand: Brand, competitors: Competitor[]): BrandRow[] {
+  const youMentions = runs.filter((r) => r.mentioned).length;
+  const comp = competitors.map((c) => ({ c, mentions: runs.filter((r) => competitorIn(r, c.name)).length }));
+  const totalMentions = youMentions + comp.reduce((s, x) => s + x.mentions, 0);
+  const total = runs.length;
+
+  const rows: BrandRow[] = [
+    {
+      name: brand.name,
+      domain: brand.domain,
+      isYou: true,
+      visibility: total ? youMentions / total : 0,
+      sov: totalMentions ? youMentions / totalMentions : 0,
+      mentions: youMentions,
+    },
+    ...comp.map(({ c, mentions }) => ({
+      name: c.name,
+      domain: c.domain,
+      isYou: false,
+      visibility: total ? mentions / total : 0,
+      sov: totalMentions ? mentions / totalMentions : 0,
+      mentions,
+    })),
+  ];
+  // Eşitlikte marka öne alınmaz: kullanıcıyı yanıltmamak için rakip önde kalır
+  return rows.sort((a, b) => b.visibility - a.visibility || Number(a.isYou) - Number(b.isYou));
+}
+
+/** Sıra: sizden kesin olarak daha görünür marka sayısı + 1 (eşitlikte aynı sıra). */
+export function rankOf(rows: BrandRow[]): number {
+  const you = rows.find((r) => r.isYou);
+  if (!you) return 0;
+  return 1 + rows.filter((r) => !r.isYou && r.visibility > you.visibility).length;
+}
+
+/** Seçili dönemdeki görünürlüğün bir önceki eşit dönemle farkı (yüzde puan, 0-1). Önceki dönemde veri yoksa null. */
+export function visibilityChange(genericRuns: Run[], days: number, now = Date.now()): number | null {
+  const period = days * 86400000;
+  const age = (r: Run) => now - new Date(r.created_at).getTime();
+  const current = genericRuns.filter((r) => age(r) <= period);
+  const previous = genericRuns.filter((r) => age(r) > period && age(r) <= 2 * period);
+  if (previous.length === 0 || current.length === 0) return null;
+  return visibility(current) - visibility(previous);
+}
+
+// ---- Haftalık trend ----
+
+function mondayOf(date: Date): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - d.getDay());
+  const day = (d.getDay() + 6) % 7; // Pazartesi = 0
+  d.setDate(d.getDate() - day);
   return d;
 }
 
-/** Haftalık (Pazar başlangıç) görünürlük trendi: marka + her rakip. */
+function isoDay(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Haftalık (Pazartesi başlangıçlı) görünürlük; test yapılmayan haftalarda değer yoktur. */
 export function visibilityTrend(
   runs: Run[],
   brand: Brand,
   competitors: Competitor[],
-  weeks = 8
+  weeks: number,
+  now = new Date()
 ): TrendPoint[] {
-  const now = new Date();
-  const buckets: { start: Date; runs: Run[] }[] = [];
+  const start = mondayOf(now);
+  const buckets = new Map<string, Run[]>();
+  const order: string[] = [];
   for (let i = weeks - 1; i >= 0; i--) {
-    const start = sundayOf(now);
-    start.setDate(start.getDate() - i * 7);
-    buckets.push({ start, runs: [] });
+    const d = new Date(start);
+    d.setDate(d.getDate() - i * 7);
+    const k = isoDay(d);
+    order.push(k);
+    buckets.set(k, []);
   }
-
   for (const r of runs) {
-    const wk = sundayOf(new Date(r.created_at)).getTime();
-    const b = buckets.find((x) => x.start.getTime() === wk);
-    if (b) b.runs.push(r);
+    const k = isoDay(mondayOf(new Date(r.created_at)));
+    buckets.get(k)?.push(r);
   }
-
-  return buckets.map(({ start, runs: wr }) => {
-    const point: TrendPoint = {
-      date: `${start.getDate()}/${start.getMonth() + 1}`,
-    };
-    // Test yapılmayan haftalar boş bırakılır (grafikte %0 gibi görünmesin)
+  return order.map((week) => {
+    const wr = buckets.get(week)!;
+    const point: TrendPoint = { week };
     if (wr.length === 0) return point;
     point[brand.name] = Math.round(visibility(wr) * 100);
     for (const c of competitors) {
-      const compRuns = wr.filter((r) => (r.competitor_mentions ?? {})[c.name]);
-      point[c.name] = Math.round((compRuns.length / wr.length) * 100);
+      point[c.name] = Math.round((wr.filter((r) => competitorIn(r, c.name)).length / wr.length) * 100);
     }
     return point;
   });
 }
 
-export function rankings(
-  runs: Run[],
-  brand: Brand,
-  competitors: Competitor[]
-): RankingRow[] {
-  const total = runs.length || 1;
-  const rows: RankingRow[] = [];
+// ---- Asistan bazında ----
 
-  rows.push({
-    name: brand.name,
-    domain: brand.domain,
-    isYou: true,
-    visibility: visibility(runs),
-    sov: shareOfVoice(runs),
-    sentiment: avgSentiment(runs),
-    position: avgPosition(runs),
-  });
-
-  // SOV paydası: tüm markaların (siz + rakipler) toplam geçiş sayısı
-  let totalMentions = runs.filter((r) => r.mentioned).length;
-  for (const r of runs) {
-    for (const v of Object.values(r.competitor_mentions ?? {})) if (v) totalMentions += 1;
-  }
-
-  for (const c of competitors) {
-    const compMentions = runs.filter(
-      (r) => (r.competitor_mentions ?? {})[c.name]
-    ).length;
-    rows.push({
-      name: c.name,
-      domain: c.domain,
-      isYou: false,
-      visibility: compMentions / total,
-      sov: totalMentions ? compMentions / totalMentions : 0,
-      // Rakipler için ton/konum ölçülmez (yalnızca geçip geçmediği)
-      sentiment: 0,
-      position: null,
-    });
-  }
-
-  return rows.sort((a, b) => b.visibility - a.visibility);
+export function byModel(runs: Run[], selected: ModelId[]): ModelSummary[] {
+  const models = ALL_MODELS.filter((m) => selected.includes(m) || runs.some((r) => r.model === m));
+  return models
+    .map((model) => {
+      const mr = runs.filter((r) => r.model === model);
+      return { model, runs: mr.length, visibility: mr.length ? visibility(mr) : null };
+    })
+    .sort((a, b) => STANDARD_MODELS.indexOf(a.model) - STANDARD_MODELS.indexOf(b.model));
 }
 
-/** Şu anki dönem vs önceki eşit uzunlukta dönem görünürlük farkı (yüzde puan). */
-export function visibilityChange(allRuns: Run[], days: number): number {
-  const now = Date.now();
-  const periodMs = days * 86400000;
-  const current = allRuns.filter(
-    (r) => now - new Date(r.created_at).getTime() <= periodMs
-  );
-  const previous = allRuns.filter((r) => {
-    const age = now - new Date(r.created_at).getTime();
-    return age > periodMs && age <= periodMs * 2;
-  });
-  if (previous.length === 0) return 0;
-  return visibility(current) - visibility(previous);
+// ---- Fırsatlar: markanın geçmediği, rakiplerin geçtiği sorular ----
+
+/** Her (soru, asistan) ikilisinin en son testi. */
+export function latestPerPromptModel(runs: Run[]): Run[] {
+  const latest = new Map<string, Run>();
+  for (const r of runs) {
+    const k = `${r.prompt_id}:${r.model}`;
+    const cur = latest.get(k);
+    if (!cur || r.created_at > cur.created_at) latest.set(k, r);
+  }
+  return [...latest.values()];
+}
+
+export function gaps(genericRuns: Run[], prompts: Prompt[], competitors: Competitor[], limit = 6): GapItem[] {
+  const byId = new Map(prompts.map((p) => [p.id, p]));
+  const items = new Map<string, GapItem>();
+  for (const r of latestPerPromptModel(genericRuns)) {
+    if (r.mentioned) continue;
+    const prompt = byId.get(r.prompt_id);
+    if (!prompt || !prompt.is_active) continue;
+    const hits = competitors.filter((c) => competitorIn(r, c.name)).map((c) => c.name);
+    if (hits.length === 0) continue;
+    const item = items.get(prompt.id) ?? { promptId: prompt.id, text: prompt.text, competitors: [], models: [] };
+    for (const h of hits) if (!item.competitors.includes(h)) item.competitors.push(h);
+    if (!item.models.includes(r.model)) item.models.push(r.model);
+    items.set(prompt.id, item);
+  }
+  // En çok rakibin ve asistanın geçtiği sorular önce
+  return [...items.values()]
+    .sort((a, b) => b.competitors.length + b.models.length - (a.competitors.length + a.models.length))
+    .slice(0, limit);
 }
 
 // ---- Kaynaklar ----
-export function domainSources(
-  citations: Citation[],
-  totalRuns: number
-): SourceRow[] {
-  return groupSources(citations, totalRuns, (c) => c.domain);
-}
 
-export function urlSources(
-  citations: Citation[],
-  totalRuns: number
-): SourceRow[] {
-  return groupSources(citations, totalRuns, (c) => c.url || c.domain);
-}
-
-function groupSources(
-  citations: Citation[],
-  totalRuns: number,
-  keyFn: (c: Citation) => string
-): SourceRow[] {
-  const totalCitations = citations.length || 1;
-  const map = new Map<string, { count: number; type: DomainType }>();
+export function sourceRows(citations: Citation[], totalRuns: number, by: "domain" | "url"): SourceRow[] {
+  const map = new Map<string, { runs: Set<string>; count: number; type: DomainType }>();
   for (const c of citations) {
-    const key = keyFn(c);
-    const cur = map.get(key) ?? { count: 0, type: c.domain_type };
+    const key = by === "url" ? c.url || c.domain : c.domain;
+    const cur = map.get(key) ?? { runs: new Set<string>(), count: 0, type: c.domain_type };
+    cur.runs.add(c.run_id);
     cur.count += 1;
     map.set(key, cur);
   }
-  const rows: SourceRow[] = [];
-  for (const [key, { count, type }] of map.entries()) {
-    rows.push({
-      key,
-      domainType: type,
-      retrievalRate: totalRuns ? (count / totalRuns) * 100 : 0,
-      citationRate: count / totalCitations,
-      count,
-    });
-  }
-  return rows.sort((a, b) => b.count - a.count);
-}
-
-export function domainTypeBreakdown(
-  citations: Citation[]
-): DomainTypeBreakdown[] {
-  const total = citations.length || 1;
-  const map = new Map<DomainType, number>();
-  for (const c of citations) {
-    map.set(c.domain_type, (map.get(c.domain_type) ?? 0) + 1);
-  }
   return [...map.entries()]
-    .map(([type, count]) => ({
-      type,
-      count,
-      percent: (count / total) * 100,
+    .map(([key, v]) => ({
+      key,
+      domainType: v.type,
+      // Bir cevapta aynı site birden çok kez geçse de bir kez sayılır
+      share: totalRuns ? v.runs.size / totalRuns : 0,
+      count: v.count,
     }))
+    .sort((a, b) => b.share - a.share || b.count - a.count || a.key.localeCompare(b.key));
+}
+
+export function domainTypeBreakdown(citations: Citation[]): DomainTypeBreakdown[] {
+  const total = citations.length;
+  const map = new Map<DomainType, number>();
+  for (const c of citations) map.set(c.domain_type, (map.get(c.domain_type) ?? 0) + 1);
+  return [...map.entries()]
+    .map(([type, count]) => ({ type, count, share: total ? count / total : 0 }))
     .sort((a, b) => b.count - a.count);
-}
-
-/** Top domainlerin haftalık retrieval trendi (AreaChart). */
-export function sourceTrend(
-  citations: Citation[],
-  runs: Run[],
-  topDomains: string[],
-  weeks = 8
-): TrendPoint[] {
-  const runDate = new Map(runs.map((r) => [r.id, r.created_at]));
-  const now = new Date();
-  const buckets: { start: Date; cites: Citation[] }[] = [];
-  for (let i = weeks - 1; i >= 0; i--) {
-    const start = sundayOf(now);
-    start.setDate(start.getDate() - i * 7);
-    buckets.push({ start, cites: [] });
-  }
-  for (const c of citations) {
-    const dateStr = runDate.get(c.run_id);
-    if (!dateStr) continue;
-    const wk = sundayOf(new Date(dateStr)).getTime();
-    const b = buckets.find((x) => x.start.getTime() === wk);
-    if (b) b.cites.push(c);
-  }
-  return buckets.map(({ start, cites }) => {
-    const point: TrendPoint = {
-      date: `${start.getDate()}/${start.getMonth() + 1}`,
-    };
-    for (const d of topDomains) {
-      point[d] = cites.filter((c) => c.domain === d).length;
-    }
-    return point;
-  });
-}
-
-// ---- Overview toplu metrik ----
-export function overviewMetrics(
-  runs: Run[],
-  allRuns: Run[],
-  citations: Citation[],
-  ranked: RankingRow[],
-  brand: Brand,
-  days: number
-): OverviewMetrics {
-  const rank = ranked.findIndex((r) => r.isYou) + 1;
-  return {
-    visibility: visibility(runs),
-    visibilityChange: visibilityChange(allRuns, days),
-    mentionedRuns: runs.filter((r) => r.mentioned).length,
-    totalRuns: runs.length,
-    avgSentiment: avgSentiment(runs),
-    avgPosition: avgPosition(runs),
-    totalCitations: citations.length,
-    competitiveRank: rank || 1,
-  };
-}
-
-export function recentChats(
-  runs: Run[],
-  prompts: Prompt[],
-  citations: Citation[],
-  limit = 6
-): RecentChat[] {
-  const promptMap = new Map(prompts.map((p) => [p.id, p]));
-  const citByRun = new Map<string, number>();
-  for (const c of citations) {
-    citByRun.set(c.run_id, (citByRun.get(c.run_id) ?? 0) + 1);
-  }
-
-  // Prompt bazında grupla, en yeni run zamanına göre sırala
-  const byPrompt = new Map<string, Run[]>();
-  for (const r of runs) {
-    const arr = byPrompt.get(r.prompt_id) ?? [];
-    arr.push(r);
-    byPrompt.set(r.prompt_id, arr);
-  }
-
-  const chats: RecentChat[] = [];
-  for (const [promptId, pr] of byPrompt.entries()) {
-    const prompt = promptMap.get(promptId);
-    if (!prompt) continue;
-    const latest = pr.reduce((a, b) =>
-      new Date(a.created_at) > new Date(b.created_at) ? a : b
-    );
-    const citationCount = pr.reduce(
-      (s, r) => s + (citByRun.get(r.id) ?? 0),
-      0
-    );
-    chats.push({
-      promptId,
-      mentioned: pr.some((r) => r.mentioned),
-      promptText: prompt.text,
-      models: [...new Set(pr.map((r) => r.model))] as ModelId[],
-      citationCount,
-      sentiment: avgSentiment(pr),
-      position: avgPosition(pr),
-      date: latest.created_at,
-    });
-  }
-  return chats
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, limit);
 }

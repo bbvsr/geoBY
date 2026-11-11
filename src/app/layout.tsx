@@ -1,34 +1,23 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/newsreader";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GeoBY — LLM Görünürlük Monitörü",
+  title: { default: "GeoBY", template: "%s · GeoBY" },
   description:
-    "Markanızın yapay zeka asistanlarındaki (ChatGPT, Claude, Gemini, Perplexity, AI Overview) görünürlüğünü ölçün ve artırın.",
+    "Markanızın ChatGPT, Gemini, Claude, Perplexity ve Google AI Overview cevaplarında ne kadar önerildiğini ölçer.",
+  icons: { icon: "/icon.svg" },
+  robots: { index: false, follow: false },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export const viewport: Viewport = {
+  themeColor: "#f6f4ef",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="tr" className="dark">
-      <head>
-        <link
-          rel="preconnect"
-          href="https://fonts.googleapis.com"
-        />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html lang="tr">
       <body>{children}</body>
     </html>
   );
